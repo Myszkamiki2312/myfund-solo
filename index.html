@@ -437,6 +437,26 @@
 
         <article class="panel">
           <h2>Historia operacji</h2>
+          <div class="actions-inline">
+            <label class="control inline">
+              <span>Szukaj</span>
+              <input id="operationHistorySearchInput" type="search" placeholder="Ticker, typ, notatka, tag..." />
+            </label>
+            <label class="control inline">
+              <span>Typ</span>
+              <select id="operationHistoryTypeSelect"></select>
+            </label>
+            <label class="control inline">
+              <span>Portfel</span>
+              <select id="operationHistoryPortfolioSelect"></select>
+            </label>
+            <label class="control inline">
+              <span>Konto</span>
+              <select id="operationHistoryAccountSelect"></select>
+            </label>
+            <button id="operationHistoryResetBtn" type="button" class="btn secondary">Wyczyść filtry</button>
+          </div>
+          <div id="operationHistoryInfo" class="hint"></div>
           <div id="operationList" class="table-wrap"></div>
         </article>
       </section>

@@ -273,6 +273,12 @@ function cacheDom() {
   dom.operationAccountSelect = document.getElementById("operationAccountSelect");
   dom.operationAssetSelect = document.getElementById("operationAssetSelect");
   dom.operationTargetAssetSelect = document.getElementById("operationTargetAssetSelect");
+  dom.operationHistorySearchInput = document.getElementById("operationHistorySearchInput");
+  dom.operationHistoryTypeSelect = document.getElementById("operationHistoryTypeSelect");
+  dom.operationHistoryPortfolioSelect = document.getElementById("operationHistoryPortfolioSelect");
+  dom.operationHistoryAccountSelect = document.getElementById("operationHistoryAccountSelect");
+  dom.operationHistoryResetBtn = document.getElementById("operationHistoryResetBtn");
+  dom.operationHistoryInfo = document.getElementById("operationHistoryInfo");
   dom.csvImportInput = document.getElementById("csvImportInput");
   dom.brokerSelect = document.getElementById("brokerSelect");
   dom.brokerCsvInput = document.getElementById("brokerCsvInput");
@@ -419,6 +425,11 @@ function seedStaticSelects() {
     OPERATION_TYPES.map((type) => ({ value: type, label: type }))
   );
   fillSelect(
+    dom.operationHistoryTypeSelect,
+    OPERATION_TYPES.map((type) => ({ value: type, label: type })),
+    true
+  );
+  fillSelect(
     dom.recurringTypeSelect,
     OPERATION_TYPES.map((type) => ({ value: type, label: type }))
   );
@@ -446,6 +457,14 @@ function bindEvents() {
   dom.operationForm.addEventListener("submit", onOperationSubmit);
   dom.operationCancelEditBtn.addEventListener("click", () => {
     resetOperationForm();
+  });
+  dom.operationHistorySearchInput.addEventListener("input", renderOperations);
+  dom.operationHistoryTypeSelect.addEventListener("change", renderOperations);
+  dom.operationHistoryPortfolioSelect.addEventListener("change", renderOperations);
+  dom.operationHistoryAccountSelect.addEventListener("change", renderOperations);
+  dom.operationHistoryResetBtn.addEventListener("click", () => {
+    resetOperationHistoryFilters();
+    renderOperations();
   });
   dom.recurringForm.addEventListener("submit", onRecurringSubmit);
   dom.recurringCancelEditBtn.addEventListener("click", () => {
@@ -3492,6 +3511,21 @@ function resetOperationForm() {
   }
 }
 
+function resetOperationHistoryFilters() {
+  if (dom.operationHistorySearchInput) {
+    dom.operationHistorySearchInput.value = "";
+  }
+  if (dom.operationHistoryTypeSelect) {
+    dom.operationHistoryTypeSelect.value = "";
+  }
+  if (dom.operationHistoryPortfolioSelect) {
+    dom.operationHistoryPortfolioSelect.value = "";
+  }
+  if (dom.operationHistoryAccountSelect) {
+    dom.operationHistoryAccountSelect.value = "";
+  }
+}
+
 function startOperationEdit(operationId) {
   const operation = findById(state.operations, operationId);
   if (!operation || !dom.operationForm) {
@@ -4224,6 +4258,10 @@ function onActionClick(event) {
     return;
   }
   if (action === "delete-operation") {
+    const yes = window.confirm("Usunąć tę operację?");
+    if (!yes) {
+      return;
+    }
     if (editingState.operationId === id) {
       resetOperationForm();
     }
@@ -4392,6 +4430,7 @@ function fillPortfolioDependentSelects() {
   }));
   fillSelect(dom.dashboardPortfolioSelect, options, true);
   fillSelect(dom.operationPortfolioSelect, options, true);
+  fillSelect(dom.operationHistoryPortfolioSelect, options, true);
   fillSelect(dom.recurringPortfolioSelect, options, true);
   fillSelect(dom.reportPortfolioSelect, options, true);
   fillSelect(dom.toolsPortfolioSelect, options, true);
@@ -4420,6 +4459,7 @@ function fillAccountDependentSelects() {
     label: `${account.name} (${account.currency})`
   }));
   fillSelect(dom.operationAccountSelect, options, true);
+  fillSelect(dom.operationHistoryAccountSelect, options, true);
   fillSelect(dom.recurringAccountSelect, options, true);
 }
 

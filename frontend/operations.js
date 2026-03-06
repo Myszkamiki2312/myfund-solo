@@ -1,3 +1,48 @@
+function normalizeText(value) {
+  return String(value == null ? "" : value).trim().toLocaleLowerCase("pl-PL");
+}
+
+export function filterOperations(operations, filters, helpers) {
+  const {
+    state,
+    lookupName,
+    lookupAssetLabel
+  } = helpers;
+  const search = normalizeText(filters.search);
+  const type = String(filters.type || "");
+  const portfolioId = String(filters.portfolioId || "");
+  const accountId = String(filters.accountId || "");
+
+  return operations.filter((operation) => {
+    if (type && operation.type !== type) {
+      return false;
+    }
+    if (portfolioId && operation.portfolioId !== portfolioId) {
+      return false;
+    }
+    if (accountId && operation.accountId !== accountId) {
+      return false;
+    }
+    if (!search) {
+      return true;
+    }
+    const haystack = [
+      operation.date,
+      operation.type,
+      lookupName(state.portfolios, operation.portfolioId),
+      lookupName(state.accounts, operation.accountId),
+      lookupAssetLabel(operation.assetId),
+      lookupAssetLabel(operation.targetAssetId),
+      operation.note,
+      operation.currency,
+      Array.isArray(operation.tags) ? operation.tags.join(", ") : ""
+    ]
+      .map((item) => normalizeText(item))
+      .join(" ");
+    return haystack.includes(search);
+  });
+}
+
 export function renderOperations(deps) {
   const {
     dom,
@@ -10,7 +55,20 @@ export function renderOperations(deps) {
     renderTable
   } = deps;
 
-  const rows = state.operations
+  const filters = {
+    search: dom.operationHistorySearchInput ? dom.operationHistorySearchInput.value : "",
+    type: dom.operationHistoryTypeSelect ? dom.operationHistoryTypeSelect.value : "",
+    portfolioId: dom.operationHistoryPortfolioSelect ? dom.operationHistoryPortfolioSelect.value : "",
+    accountId: dom.operationHistoryAccountSelect ? dom.operationHistoryAccountSelect.value : ""
+  };
+
+  const filteredOperations = filterOperations(state.operations, filters, {
+    state,
+    lookupName,
+    lookupAssetLabel
+  });
+
+  const rows = filteredOperations
     .slice()
     .sort((a, b) => String(b.date).localeCompare(String(a.date)))
     .map((operation) => [
@@ -32,6 +90,14 @@ export function renderOperations(deps) {
         `<button class="btn danger" data-action="delete-operation" data-id="${operation.id}">Usuń</button>`
       ].join(" ")
     ]);
+
+  if (dom.operationHistoryInfo) {
+    const activeFilters = [filters.search, filters.type, filters.portfolioId, filters.accountId].filter(Boolean).length;
+    dom.operationHistoryInfo.textContent = activeFilters
+      ? `Pokazano ${filteredOperations.length} z ${state.operations.length} operacji`
+      : `Łącznie operacji: ${state.operations.length}`;
+  }
+
   renderTable(
     dom.operationList,
     [
