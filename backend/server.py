@@ -155,6 +155,15 @@ class AppHandler(SimpleHTTPRequestHandler):
             raise RuntimeError("App context is not initialized.")
         super().__init__(*args, directory=str(handler_context.project_root), **kwargs)
 
+    def log_message(self, format: str, *args) -> None:  # noqa: A002
+        try:
+            message = format % args
+        except Exception:  # noqa: BLE001
+            message = str(format)
+        append_server_log(
+            f'{self.address_string()} - - [{self.log_date_time_string()}] {message}'
+        )
+
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
