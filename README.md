@@ -21,12 +21,13 @@ git push origin android-v1.0.0
 
 ## Desktop EXE (Windows)
 
-Desktop build jest publikowany z GitHub Actions (`Desktop EXE`).
+Desktop build jest publikowany z GitHub Actions (`Desktop Windows`).
 
-- artifact po pushu: `prywatny-portfel-desktop-exe`
+- artifact po pushu: `prywatny-portfel-desktop-windows`
 - release asset po tagu `v...`:
   - `prywatny-portfel-desktop.exe`
   - `prywatny-portfel-desktop-win.zip`
+  - `prywatny-portfel-desktop.msi`
 
 Przyklad publikacji desktop release:
 
@@ -36,6 +37,7 @@ git push origin v0.6.1
 ```
 
 Windows `.exe` uruchamia lokalny backend i otwiera aplikacje w natywnym oknie. Dane aplikacji sa trzymane w katalogu użytkownika, a nie w folderze tymczasowym bundla.
+`MSI` instaluje ten sam launcher jako normalna aplikacja Windows dla bieżącego użytkownika, bez potrzeby ręcznego rozpakowywania.
 
 ## Testy
 
