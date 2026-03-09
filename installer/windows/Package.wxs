@@ -17,9 +17,7 @@
     <MediaTemplate EmbedCab="yes" />
 
     <StandardDirectory Id="LocalAppDataFolder">
-      <Directory Id="ProgramsFolder" Name="Programs">
-        <Directory Id="INSTALLFOLDER" Name="Prywatny Portfel" />
-      </Directory>
+      <Directory Id="INSTALLFOLDER" Name="Prywatny Portfel" />
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
@@ -34,11 +32,19 @@
   <Fragment>
     <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
       <Component Id="MainExecutable" Guid="*">
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\PrywatnyPortfel\Desktop"
+          Name="InstalledVersion"
+          Type="string"
+          Value="$(AppVersion)"
+          KeyPath="yes"
+        />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
         <File
           Id="PrywatnyPortfelExe"
           Name="PrywatnyPortfel.exe"
           Source="$(DesktopExePath)"
-          KeyPath="yes"
         >
           <Shortcut
             Id="DesktopShortcut"
@@ -61,7 +67,7 @@
         <RemoveFolder Id="RemoveAppProgramMenuDir" Directory="AppProgramMenuDir" On="uninstall" />
         <RegistryValue
           Root="HKCU"
-          Key="Software\PrywatnyPortfel"
+          Key="Software\PrywatnyPortfel\Desktop"
           Name="Installed"
           Type="integer"
           Value="1"
