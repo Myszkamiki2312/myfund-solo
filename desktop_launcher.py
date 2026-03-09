@@ -57,10 +57,22 @@ def find_free_port(host: str) -> int:
         return int(sock.getsockname()[1])
 
 
-def wait_for_health(base_url: str, timeout_seconds: int = STARTUP_TIMEOUT_SECONDS) -> None:
+def prefer_browser_shell() -> bool:
+    preferred_ui = str(os.environ.get("PRYWATNY_PORTFEL_UI") or "").strip().lower()
+    if preferred_ui in {"native", "webview"}:
+        return False
+    if preferred_ui in {"browser", "fallback"}:
+        return True
+    return os.name == "nt"
+
+
+def wait_for_health(base_url: str, startup_state: dict[str, str], timeout_seconds: int = STARTUP_TIMEOUT_SECONDS) -> None:
     deadline = time.time() + max(1, timeout_seconds)
     last_error = ""
     while time.time() < deadline:
+        startup_error = str(startup_state.get("error") or "").strip()
+        if startup_error:
+            raise RuntimeError(f"Backend startup failed: {startup_error}")
         try:
             with urlopen(f"{base_url}/api/health", timeout=2) as response:
                 if int(getattr(response, "status", 0) or 0) == 200:
@@ -70,10 +82,13 @@ def wait_for_health(base_url: str, timeout_seconds: int = STARTUP_TIMEOUT_SECOND
         except OSError as error:
             last_error = str(error)
         time.sleep(0.35)
+    startup_error = str(startup_state.get("error") or "").strip()
+    if startup_error:
+        raise RuntimeError(f"Backend startup failed: {startup_error}")
     raise RuntimeError(f"Backend did not start in time. Last error: {last_error or 'unknown'}")
 
 
-def start_runtime(static_root: Path, storage_root: Path, port: int):
+def start_runtime(static_root: Path, storage_root: Path, port: int, log_file: Path):
     os.environ["PRYWATNY_PORTFEL_PROJECT_ROOT"] = str(static_root)
     os.environ["PRYWATNY_PORTFEL_DATA_ROOT"] = str(storage_root)
 
@@ -85,13 +100,23 @@ def start_runtime(static_root: Path, storage_root: Path, port: int):
         project_root=static_root,
         data_root=storage_root,
     )
+    startup_state = {"error": "", "traceback": ""}
+
+    def run_server() -> None:
+        try:
+            runtime.serve_forever()
+        except Exception as error:  # noqa: BLE001
+            startup_state["error"] = str(error)
+            startup_state["traceback"] = traceback.format_exc(limit=10)
+            append_log(log_file, f"Backend thread crashed: {error}\n{startup_state['traceback']}")
+
     thread = threading.Thread(
-        target=runtime.serve_forever,
+        target=run_server,
         name="PrywatnyPortfelServer",
         daemon=True,
     )
     thread.start()
-    return runtime, thread
+    return runtime, thread, startup_state
 
 
 def open_data_folder(root: Path) -> None:
@@ -148,10 +173,17 @@ def main() -> int:
     log_file = log_path(storage_root)
 
     try:
+        append_log(log_file, f"Launcher start. static_root={static_root} data_root={storage_root}")
         port = find_free_port(HOST)
-        runtime, _thread = start_runtime(static_root, storage_root, port)
+        runtime, _thread, startup_state = start_runtime(static_root, storage_root, port, log_file)
         url = f"http://{HOST}:{port}"
-        wait_for_health(url)
+        wait_for_health(url, startup_state)
+        append_log(log_file, f"Backend ready at {url}")
+
+        if prefer_browser_shell():
+            append_log(log_file, "Using browser shell mode.")
+            run_fallback_window(url, storage_root, runtime)
+            return 0
 
         try:
             import webview

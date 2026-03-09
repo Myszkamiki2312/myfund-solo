@@ -36,7 +36,7 @@ git tag v0.6.1
 git push origin v0.6.1
 ```
 
-Windows `.exe` uruchamia lokalny backend i otwiera aplikacje w natywnym oknie. Dane aplikacji sa trzymane w katalogu użytkownika, a nie w folderze tymczasowym bundla.
+Windows `.exe` uruchamia lokalny backend i na Windows domyślnie otwiera aplikacje w przeglądarce z małym oknem sterującym, co jest odporniejsze od problemów z osadzonym webview. Dane aplikacji sa trzymane w katalogu użytkownika, a nie w folderze tymczasowym bundla.
 `MSI` instaluje ten sam launcher jako normalna aplikacja Windows dla bieżącego użytkownika, bez potrzeby ręcznego rozpakowywania.
 
 ## Testy
