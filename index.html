@@ -91,10 +91,15 @@
               <button type="button" class="btn secondary chart-range-btn active" data-range-key="all">ALL</button>
             </div>
             <div class="chart-toolbar-actions">
-              <span id="dashboardChartRangeInfo" class="hint compact"></span>
+              <div id="dashboardChartModeControls" class="chart-mode-group" aria-label="Tryb wykresu kokpitu">
+                <button type="button" class="btn secondary chart-mode-btn active" data-chart-mode="value">Wartość</button>
+                <button type="button" class="btn secondary chart-mode-btn" data-chart-mode="return">% stopy zwrotu</button>
+              </div>
+              <button id="dashboardChartResetZoomBtn" type="button" class="btn secondary">Reset zoomu</button>
               <button id="dashboardChartExportBtn" type="button" class="btn secondary">Eksport PNG</button>
             </div>
           </div>
+          <div id="dashboardChartRangeInfo" class="hint compact"></div>
           <div class="chart-wrap">
             <canvas id="dashboardChart" width="1200" height="280"></canvas>
           </div>
@@ -516,10 +521,15 @@
               <button type="button" class="btn secondary chart-range-btn active" data-range-key="all">ALL</button>
             </div>
             <div class="chart-toolbar-actions">
-              <span id="reportChartRangeInfo" class="hint compact"></span>
+              <div id="reportChartModeControls" class="chart-mode-group" aria-label="Tryb wykresu raportu">
+                <button type="button" class="btn secondary chart-mode-btn active" data-chart-mode="value">Wartość</button>
+                <button type="button" class="btn secondary chart-mode-btn" data-chart-mode="return">% stopy zwrotu</button>
+              </div>
+              <button id="reportChartResetZoomBtn" type="button" class="btn secondary">Reset zoomu</button>
               <button id="reportChartExportBtn" type="button" class="btn secondary">Eksport PNG</button>
             </div>
           </div>
+          <div id="reportChartRangeInfo" class="hint compact"></div>
           <div class="chart-wrap">
             <canvas id="reportChart" width="1200" height="300"></canvas>
           </div>

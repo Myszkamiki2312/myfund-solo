@@ -189,10 +189,20 @@ const candlesView = {
 };
 const lineChartViews = {
   dashboard: {
-    rangeKey: "all"
+    rangeKey: "all",
+    mode: "value",
+    manualViewport: null,
+    comparisonSeries: [],
+    comparisonKey: "",
+    comparisonLoading: false,
+    comparisonResolvedKey: ""
   },
   report: {
-    rangeKey: "all"
+    rangeKey: "all",
+    mode: "value",
+    manualViewport: null,
+    comparisonSeries: [],
+    comparisonKey: ""
   }
 };
 const editingState = {
@@ -261,7 +271,9 @@ function cacheDom() {
   dom.statTotalPl = document.getElementById("statTotalPl");
   dom.dashboardChart = document.getElementById("dashboardChart");
   dom.dashboardChartRangeControls = document.getElementById("dashboardChartRangeControls");
+  dom.dashboardChartModeControls = document.getElementById("dashboardChartModeControls");
   dom.dashboardChartRangeInfo = document.getElementById("dashboardChartRangeInfo");
+  dom.dashboardChartResetZoomBtn = document.getElementById("dashboardChartResetZoomBtn");
   dom.dashboardChartExportBtn = document.getElementById("dashboardChartExportBtn");
   dom.dashboardDetails = document.getElementById("dashboardDetails");
 
@@ -328,7 +340,9 @@ function cacheDom() {
   dom.reportOutput = document.getElementById("reportOutput");
   dom.reportChart = document.getElementById("reportChart");
   dom.reportChartRangeControls = document.getElementById("reportChartRangeControls");
+  dom.reportChartModeControls = document.getElementById("reportChartModeControls");
   dom.reportChartRangeInfo = document.getElementById("reportChartRangeInfo");
+  dom.reportChartResetZoomBtn = document.getElementById("reportChartResetZoomBtn");
   dom.reportChartExportBtn = document.getElementById("reportChartExportBtn");
 
   dom.alertForm = document.getElementById("alertForm");
@@ -473,7 +487,13 @@ function bindEvents() {
   bindLineChartRangeControls("dashboard", dom.dashboardChartRangeControls, () => {
     renderDashboard();
   });
+  bindLineChartModeControls("dashboard", dom.dashboardChartModeControls, () => {
+    renderDashboard();
+  });
   bindLineChartRangeControls("report", dom.reportChartRangeControls, () => {
+    void renderReportCurrent({ force: true });
+  });
+  bindLineChartModeControls("report", dom.reportChartModeControls, () => {
     void renderReportCurrent({ force: true });
   });
 
@@ -519,9 +539,19 @@ function bindEvents() {
     event.preventDefault();
     exportCanvasAsPng(dom.dashboardChart, `prywatny-portfel-kokpit-${todayIso()}.png`);
   });
+  dom.dashboardChartResetZoomBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    clearLineChartManualViewport("dashboard");
+    renderDashboard();
+  });
   dom.reportChartExportBtn.addEventListener("click", (event) => {
     event.preventDefault();
     exportCanvasAsPng(dom.reportChart, `prywatny-portfel-raport-${todayIso()}.png`);
+  });
+  dom.reportChartResetZoomBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    clearLineChartManualViewport("report");
+    void renderReportCurrent({ force: true });
   });
   dom.alertForm.addEventListener("submit", onAlertSubmit);
   dom.alertCancelEditBtn.addEventListener("click", () => {
@@ -1811,6 +1841,26 @@ function bindLineChartRangeControls(chartKey, container, rerender) {
       return;
     }
     lineChartViews[chartKey].rangeKey = nextRangeKey;
+    clearLineChartManualViewport(chartKey);
+    rerender();
+  });
+}
+
+function bindLineChartModeControls(chartKey, container, rerender) {
+  if (!container) {
+    return;
+  }
+  container.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-chart-mode]");
+    if (!button) {
+      return;
+    }
+    event.preventDefault();
+    const nextMode = normalizeLineChartMode(button.dataset.chartMode);
+    if (!lineChartViews[chartKey] || lineChartViews[chartKey].mode === nextMode) {
+      return;
+    }
+    lineChartViews[chartKey].mode = nextMode;
     rerender();
   });
 }
@@ -1820,9 +1870,70 @@ function normalizeLineChartRange(rangeKey) {
   return LINE_CHART_RANGES.some((item) => item.key === value) ? value : "all";
 }
 
+function normalizeLineChartMode(mode) {
+  return String(mode || "value").trim().toLowerCase() === "return" ? "return" : "value";
+}
+
 function getLineChartRangeDays(rangeKey) {
   const match = LINE_CHART_RANGES.find((item) => item.key === normalizeLineChartRange(rangeKey));
   return match ? match.days : null;
+}
+
+function clearLineChartManualViewport(chartKey) {
+  if (lineChartViews[chartKey]) {
+    lineChartViews[chartKey].manualViewport = null;
+  }
+}
+
+function setLineChartManualViewport(chartKey, startIndex, endIndex, totalPoints) {
+  if (!lineChartViews[chartKey] || totalPoints < 2) {
+    return false;
+  }
+  const start = Math.max(0, Math.min(startIndex, endIndex));
+  const end = Math.min(totalPoints, Math.max(startIndex, endIndex) + 1);
+  if (end - start < 2 || end - start >= totalPoints) {
+    clearLineChartManualViewport(chartKey);
+    return false;
+  }
+  lineChartViews[chartKey].manualViewport = { start, end };
+  return true;
+}
+
+function panLineChartViewport(chartKey, deltaPoints, originViewport, totalPoints) {
+  if (!lineChartViews[chartKey] || !originViewport || totalPoints < 2) {
+    return false;
+  }
+  const span = Math.max(2, originViewport.end - originViewport.start);
+  if (span >= totalPoints) {
+    clearLineChartManualViewport(chartKey);
+    return false;
+  }
+  const maxStart = Math.max(0, totalPoints - span);
+  const start = Math.max(0, Math.min(maxStart, originViewport.start + deltaPoints));
+  const end = start + span;
+  const current = lineChartViews[chartKey].manualViewport;
+  if (current && current.start === start && current.end === end) {
+    return false;
+  }
+  lineChartViews[chartKey].manualViewport = { start, end };
+  return true;
+}
+
+function toChartNumOrNull(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  const normalized = toNum(value);
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
+function stripMarkup(value) {
+  return String(value || "").replace(/<[^>]*>/g, "").trim();
+}
+
+function parseChartCellNumber(value) {
+  const stripped = stripMarkup(value).replace(/[%]/g, "");
+  return toChartNumOrNull(stripped);
 }
 
 function parseLineChartDateLabel(label) {
@@ -1850,7 +1961,7 @@ function sliceLineChartSeriesByRange(labels, values, rangeKey) {
   const normalizedRangeKey = normalizeLineChartRange(rangeKey);
   const points = (values || []).map((value, index) => ({
     label: labels[index] || "",
-    value: toNum(value),
+    value: toChartNumOrNull(value),
     parsedDate: parseLineChartDateLabel(labels[index] || "")
   }));
   if (!points.length) {
@@ -1858,23 +1969,34 @@ function sliceLineChartSeriesByRange(labels, values, rangeKey) {
       labels: [],
       values: [],
       rangeKey: normalizedRangeKey,
-      info: "Brak danych do wykresu."
+      info: "Brak danych do wykresu.",
+      startIndex: 0,
+      endIndex: 0,
+      totalPoints: 0,
+      usesDates: false
     };
   }
 
   const rangeDays = getLineChartRangeDays(normalizedRangeKey);
   let visiblePoints = points.slice();
+  let startIndex = 0;
   const allHaveDates = points.every((point) => point.parsedDate instanceof Date);
   if (rangeDays) {
     if (allHaveDates) {
       const lastDate = points[points.length - 1].parsedDate;
       const threshold = new Date(lastDate.getTime());
       threshold.setDate(threshold.getDate() - rangeDays + 1);
-      visiblePoints = points.filter((point) => point.parsedDate >= threshold);
+      startIndex = points.findIndex((point) => point.parsedDate >= threshold);
+      if (startIndex < 0) {
+        startIndex = Math.max(0, points.length - 2);
+      }
+      visiblePoints = points.slice(startIndex);
     } else {
-      visiblePoints = points.slice(-Math.min(points.length, rangeDays));
+      startIndex = Math.max(0, points.length - Math.min(points.length, rangeDays));
+      visiblePoints = points.slice(startIndex);
     }
     if (points.length > 1 && visiblePoints.length < 2) {
+      startIndex = Math.max(0, points.length - Math.min(points.length, 2));
       visiblePoints = points.slice(-Math.min(points.length, 2));
     }
   }
@@ -1883,35 +2005,102 @@ function sliceLineChartSeriesByRange(labels, values, rangeKey) {
     labels: visiblePoints.map((point) => point.label),
     values: visiblePoints.map((point) => point.value),
     rangeKey: normalizedRangeKey,
-    info: formatLineChartRangeInfo(visiblePoints, points, allHaveDates)
+    info: formatLineChartRangeInfo(visiblePoints, points, allHaveDates),
+    startIndex,
+    endIndex: startIndex + visiblePoints.length,
+    totalPoints: points.length,
+    usesDates: allHaveDates
   };
+}
+
+function computeReturnSeries(values) {
+  const numericValues = values.map((value) => toChartNumOrNull(value));
+  const base = numericValues.find((value) => value != null && value !== 0) ?? numericValues.find((value) => value != null) ?? 0;
+  if (!base) {
+    return numericValues.map(() => 0);
+  }
+  return numericValues.map((value) => {
+    if (value == null) {
+      return null;
+    }
+    return ((value - base) / Math.abs(base)) * 100;
+  });
+}
+
+function comparisonSeriesWindow(series, rangeStart, rangeEnd, viewportStart, viewportEnd, mode) {
+  const values = Array.isArray(series.values) ? series.values : [];
+  const rangedValues = values.slice(rangeStart, rangeEnd);
+  const viewportValues = rangedValues.slice(viewportStart, viewportEnd);
+  return {
+    name: series.name || "Porównanie",
+    color: series.color || "#ff7f32",
+    dash: Array.isArray(series.dash) ? series.dash : [7, 5],
+    values: mode === "return" ? computeReturnSeries(viewportValues) : viewportValues.map((value) => toChartNumOrNull(value))
+  };
+}
+
+function extractBenchmarkSeriesFromRows(headers, rows) {
+  const safeHeaders = Array.isArray(headers) ? headers.map((item) => stripMarkup(item)) : [];
+  const benchmarkIndex = safeHeaders.findIndex((header) => /benchmark/i.test(header));
+  if (benchmarkIndex < 0 || !Array.isArray(rows) || !rows.length) {
+    return [];
+  }
+  const values = rows.map((row) => {
+    if (!Array.isArray(row)) {
+      return null;
+    }
+    return parseChartCellNumber(row[benchmarkIndex]);
+  });
+  return [
+    {
+      name: safeHeaders[benchmarkIndex] || "Benchmark",
+      color: "#ff7f32",
+      dash: [8, 4],
+      values
+    }
+  ];
 }
 
 function chartControlsForKey(chartKey) {
   if (chartKey === "dashboard") {
     return {
-      buttonsWrap: dom.dashboardChartRangeControls,
-      info: dom.dashboardChartRangeInfo
+      rangeWrap: dom.dashboardChartRangeControls,
+      modeWrap: dom.dashboardChartModeControls,
+      info: dom.dashboardChartRangeInfo,
+      resetBtn: dom.dashboardChartResetZoomBtn
     };
   }
   if (chartKey === "report") {
     return {
-      buttonsWrap: dom.reportChartRangeControls,
-      info: dom.reportChartRangeInfo
+      rangeWrap: dom.reportChartRangeControls,
+      modeWrap: dom.reportChartModeControls,
+      info: dom.reportChartRangeInfo,
+      resetBtn: dom.reportChartResetZoomBtn
     };
   }
   return {
-    buttonsWrap: null,
-    info: null
+    rangeWrap: null,
+    modeWrap: null,
+    info: null,
+    resetBtn: null
   };
 }
 
 function syncLineChartControls(chartKey, infoText = "") {
   const controls = chartControlsForKey(chartKey);
   const activeRangeKey = lineChartViews[chartKey] ? lineChartViews[chartKey].rangeKey : "all";
-  if (controls.buttonsWrap) {
-    controls.buttonsWrap.querySelectorAll("[data-range-key]").forEach((button) => {
+  const activeMode = lineChartViews[chartKey] ? normalizeLineChartMode(lineChartViews[chartKey].mode) : "value";
+  const hasManualViewport = Boolean(lineChartViews[chartKey] && lineChartViews[chartKey].manualViewport);
+  if (controls.rangeWrap) {
+    controls.rangeWrap.querySelectorAll("[data-range-key]").forEach((button) => {
       const isActive = normalizeLineChartRange(button.dataset.rangeKey) === activeRangeKey;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+  if (controls.modeWrap) {
+    controls.modeWrap.querySelectorAll("[data-chart-mode]").forEach((button) => {
+      const isActive = normalizeLineChartMode(button.dataset.chartMode) === activeMode;
       button.classList.toggle("active", isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
@@ -1919,13 +2108,101 @@ function syncLineChartControls(chartKey, infoText = "") {
   if (controls.info) {
     controls.info.textContent = infoText;
   }
+  if (controls.resetBtn) {
+    controls.resetBtn.disabled = !hasManualViewport;
+  }
 }
 
-function getVisibleLineChartModel(chartKey, labels, values) {
+function requestLineChartRender(chartKey) {
+  if (chartKey === "dashboard") {
+    renderDashboard();
+    return;
+  }
+  if (chartKey === "report") {
+    void renderReportCurrent({ force: true });
+  }
+}
+
+function buildLineChartInteraction(chartKey, totalPoints) {
+  return {
+    isZoomed() {
+      return Boolean(lineChartViews[chartKey] && lineChartViews[chartKey].manualViewport);
+    },
+    getViewport() {
+      const viewport = lineChartViews[chartKey] ? lineChartViews[chartKey].manualViewport : null;
+      return viewport ? { ...viewport } : { start: 0, end: totalPoints };
+    },
+    zoomRange(startIndex, endIndex) {
+      if (setLineChartManualViewport(chartKey, startIndex, endIndex, totalPoints)) {
+        requestLineChartRender(chartKey);
+      }
+    },
+    panViewport(deltaPoints, originViewport) {
+      if (panLineChartViewport(chartKey, deltaPoints, originViewport, totalPoints)) {
+        requestLineChartRender(chartKey);
+      }
+    },
+    resetZoom() {
+      clearLineChartManualViewport(chartKey);
+      requestLineChartRender(chartKey);
+    }
+  };
+}
+
+function getVisibleLineChartModel(chartKey, labels, values, options = {}) {
   const rangeKey = lineChartViews[chartKey] ? lineChartViews[chartKey].rangeKey : "all";
-  const view = sliceLineChartSeriesByRange(labels, values, rangeKey);
-  syncLineChartControls(chartKey, view.info);
-  return view;
+  const mode = lineChartViews[chartKey] ? normalizeLineChartMode(lineChartViews[chartKey].mode) : "value";
+  const baseView = sliceLineChartSeriesByRange(labels, values, rangeKey);
+  const manualViewport = lineChartViews[chartKey] ? lineChartViews[chartKey].manualViewport : null;
+
+  let viewportStart = 0;
+  let viewportEnd = baseView.labels.length;
+  if (manualViewport && baseView.labels.length >= 2) {
+    viewportStart = Math.max(0, Math.min(manualViewport.start, Math.max(0, baseView.labels.length - 2)));
+    viewportEnd = Math.max(viewportStart + 2, Math.min(baseView.labels.length, manualViewport.end));
+    if (viewportEnd - viewportStart >= baseView.labels.length) {
+      clearLineChartManualViewport(chartKey);
+      viewportStart = 0;
+      viewportEnd = baseView.labels.length;
+    }
+  }
+
+  const visibleLabels = baseView.labels.slice(viewportStart, viewportEnd);
+  const visiblePrimaryValues = baseView.values.slice(viewportStart, viewportEnd);
+  const primaryValues = mode === "return" ? computeReturnSeries(visiblePrimaryValues) : visiblePrimaryValues;
+
+  const comparisonVisibility = options.comparisonVisibility || "always";
+  const rawComparisonSeries =
+    comparisonVisibility === "return-only" && mode !== "return" ? [] : options.comparisonSeries || [];
+  const comparisonSeries = rawComparisonSeries.map((series) =>
+    comparisonSeriesWindow(series, baseView.startIndex, baseView.endIndex, viewportStart, viewportEnd, mode)
+  );
+
+  const zoomSpan = viewportEnd - viewportStart;
+  let info = formatLineChartRangeInfo(
+    visibleLabels.map((label, index) => ({ label, value: primaryValues[index] })),
+    baseView.labels.map((label, index) => ({ label, value: baseView.values[index] })),
+    baseView.usesDates
+  );
+  info += mode === "return" ? " | tryb: %" : " | tryb: wartość";
+  if (zoomSpan > 0 && zoomSpan < baseView.labels.length) {
+    info += ` | zoom: ${zoomSpan} pkt (przeciągnij, aby przesuwać)`;
+  } else {
+    info += " | przeciągnij, aby przybliżyć";
+  }
+  if (comparisonSeries.length) {
+    info += ` | porównanie: ${comparisonSeries.map((item) => item.name).join(", ")}`;
+  }
+  syncLineChartControls(chartKey, info);
+
+  return {
+    labels: visibleLabels,
+    values: primaryValues,
+    comparisonSeries,
+    mode,
+    info,
+    interaction: buildLineChartInteraction(chartKey, baseView.labels.length)
+  };
 }
 
 function scheduleResponsiveChartRefresh() {
@@ -4804,14 +5081,118 @@ function renderRecurring() {
   }
 }
 
+function currentPortfolioBenchmark(portfolioId) {
+  if (!portfolioId) {
+    return "";
+  }
+  const portfolio = findById(state.portfolios, portfolioId);
+  return portfolio ? String(portfolio.benchmark || "").trim() : "";
+}
+
+function alignBenchmarkHistoryToSeries(series, history) {
+  if (!Array.isArray(series) || !series.length || !Array.isArray(history) || !history.length) {
+    return [];
+  }
+  const normalizedHistory = history
+    .map((item) => ({
+      date: String(item.date || "").slice(0, 10),
+      close: toChartNumOrNull(item.close)
+    }))
+    .filter((item) => item.date && item.close != null && item.close > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (normalizedHistory.length < 2) {
+    return [];
+  }
+  let cursor = 0;
+  let lastClose = null;
+  const output = [];
+  series.forEach((point) => {
+    const pointDate = String(point.date || "").slice(0, 10);
+    while (cursor < normalizedHistory.length && normalizedHistory[cursor].date <= pointDate) {
+      lastClose = normalizedHistory[cursor].close;
+      cursor += 1;
+    }
+    output.push(lastClose);
+  });
+  return output.filter((value) => value != null).length >= 2 ? output : [];
+}
+
+async function warmDashboardBenchmarkSeries(portfolioId, dashboardSeries) {
+  const benchmarkName = currentPortfolioBenchmark(portfolioId);
+  if (!portfolioId || !benchmarkName || !dashboardSeries.length) {
+    lineChartViews.dashboard.comparisonKey = "";
+    lineChartViews.dashboard.comparisonSeries = [];
+    lineChartViews.dashboard.comparisonLoading = false;
+    lineChartViews.dashboard.comparisonResolvedKey = "";
+    return;
+  }
+  const comparisonKey = [
+    portfolioId,
+    benchmarkName.toUpperCase(),
+    dashboardSeries.length,
+    dashboardSeries[0].date || "",
+    dashboardSeries[dashboardSeries.length - 1].date || ""
+  ].join("|");
+  if (
+    lineChartViews.dashboard.comparisonLoading ||
+    lineChartViews.dashboard.comparisonResolvedKey === comparisonKey
+  ) {
+    return;
+  }
+
+  lineChartViews.dashboard.comparisonKey = comparisonKey;
+  lineChartViews.dashboard.comparisonLoading = true;
+  try {
+    if (!backendSync.available) {
+      throw new Error("backend offline");
+    }
+    const query = `?ticker=${encodeURIComponent(benchmarkName)}&limit=${Math.max(240, dashboardSeries.length * 8)}`;
+    const payload = await apiRequest(`/tools/charts/candles${query}`, { timeoutMs: 15000 });
+    const alignedValues = alignBenchmarkHistoryToSeries(dashboardSeries, payload.candles || []);
+    lineChartViews.dashboard.comparisonSeries = alignedValues.length
+      ? [
+          {
+            name: benchmarkName,
+            color: "#ff7f32",
+            dash: [8, 4],
+            values: alignedValues
+          }
+        ]
+      : [];
+    lineChartViews.dashboard.comparisonResolvedKey = comparisonKey;
+  } catch (error) {
+    lineChartViews.dashboard.comparisonSeries = [];
+    lineChartViews.dashboard.comparisonResolvedKey = comparisonKey;
+  } finally {
+    lineChartViews.dashboard.comparisonLoading = false;
+    const stillActive =
+      (dom.dashboardPortfolioSelect ? dom.dashboardPortfolioSelect.value || "" : "") === portfolioId &&
+      lineChartViews.dashboard.comparisonKey === comparisonKey;
+    if (stillActive) {
+      renderDashboard();
+    }
+  }
+}
+
 function renderDashboard() {
   if (uiModules.dashboard && typeof uiModules.dashboard.renderDashboard === "function") {
+    const portfolioId = dom.dashboardPortfolioSelect ? dom.dashboardPortfolioSelect.value || "" : "";
+    const dashboardSeries = buildSeries(portfolioId);
+    const benchmarkName = currentPortfolioBenchmark(portfolioId);
+    const expectedComparisonPrefix = portfolioId && benchmarkName ? `${portfolioId}|${benchmarkName.toUpperCase()}|` : "";
+    const dashboardComparisonSeries =
+      expectedComparisonPrefix && lineChartViews.dashboard.comparisonKey.startsWith(expectedComparisonPrefix)
+        ? lineChartViews.dashboard.comparisonSeries
+        : [];
+    void warmDashboardBenchmarkSeries(portfolioId, dashboardSeries);
     uiModules.dashboard.renderDashboard({
       dom,
       state,
       computeMetrics,
-      buildSeries,
+      dashboardSeries,
+      dashboardComparisonSeries,
       formatMoney,
+      formatPercent,
       drawLineChart,
       getVisibleLineChartModel,
       escapeHtml,
@@ -4851,10 +5232,17 @@ async function renderReportCurrent(arg = null) {
       const remote = normalizeRemoteReport(payload.report);
       dom.reportInfo.textContent = remote.info;
       renderTable(dom.reportOutput, remote.headers, remote.rows);
-      const chartView = getVisibleLineChartModel("report", remote.chart.labels, remote.chart.values);
+      const comparisonSeries = extractBenchmarkSeriesFromRows(remote.headers, remote.rows);
+      const chartView = getVisibleLineChartModel("report", remote.chart.labels, remote.chart.values, {
+        comparisonSeries,
+        comparisonVisibility: "always"
+      });
       drawLineChart(dom.reportChart, chartView.labels, chartView.values, {
         color: remote.chart.color || "#ff7f32",
-        valueFormatter: (value) => formatFloat(value)
+        valueFormatter: (value) => (chartView.mode === "return" ? formatPercent(value) : formatFloat(value)),
+        seriesName: reportName,
+        series: chartView.comparisonSeries,
+        interaction: chartView.interaction
       });
       return;
     } catch (error) {
@@ -4868,10 +5256,17 @@ async function renderReportCurrent(arg = null) {
   }
   dom.reportInfo.textContent = report.info;
   renderTable(dom.reportOutput, report.headers, report.rows);
-  const chartView = getVisibleLineChartModel("report", report.chart.labels || [], report.chart.values || []);
+  const comparisonSeries = extractBenchmarkSeriesFromRows(report.headers, report.rows);
+  const chartView = getVisibleLineChartModel("report", report.chart.labels || [], report.chart.values || [], {
+    comparisonSeries,
+    comparisonVisibility: "always"
+  });
   drawLineChart(dom.reportChart, chartView.labels, chartView.values, {
     color: report.chart.color || "#ff7f32",
-    valueFormatter: (value) => formatFloat(value)
+    valueFormatter: (value) => (chartView.mode === "return" ? formatPercent(value) : formatFloat(value)),
+    seriesName: reportName,
+    series: chartView.comparisonSeries,
+    interaction: chartView.interaction
   });
 }
 
@@ -6052,21 +6447,25 @@ function ensureLineChartState(canvas) {
   if (canvas.__lineChartState) {
     return canvas.__lineChartState;
   }
-  const tooltipState = ensureChartTooltipElements(canvas);
+  const tooltipState = ensureChartTooltipElements(canvas, true);
 
   const state = {
     activeIndex: -1,
     points: [],
+    seriesPoints: [],
     bounds: null,
     ...tooltipState,
     valueFormatter: defaultLineChartValueFormatter,
     tooltipLabelFormatter: formatLineChartTooltipLabel,
     draw: () => {},
-    axisLabelFormatter: formatLineChartAxisLabel
+    axisLabelFormatter: formatLineChartAxisLabel,
+    tooltipContentBuilder: null,
+    interaction: null,
+    drag: null
   };
 
   const clearHover = () => {
-    if (state.activeIndex === -1) {
+    if (state.activeIndex === -1 || state.drag) {
       return;
     }
     state.activeIndex = -1;
@@ -6075,7 +6474,7 @@ function ensureLineChartState(canvas) {
   };
 
   const updateHover = (event) => {
-    if (!state.points.length || !state.bounds) {
+    if (state.drag || !state.points.length || !state.bounds) {
       clearHover();
       return;
     }
@@ -6108,18 +6507,120 @@ function ensureLineChartState(canvas) {
     }
 
     const point = state.points[state.activeIndex];
-    if (!point || !state.tooltip || !state.tooltipLabel || !state.tooltipValue) {
+    const tooltipContent =
+      typeof state.tooltipContentBuilder === "function" ? state.tooltipContentBuilder(state.activeIndex) : null;
+    if (!point || !tooltipContent || !state.tooltip || !state.tooltipLabel || !state.tooltipValue) {
+      hideChartTooltip(state);
       return;
     }
-    state.tooltipLabel.textContent = state.tooltipLabelFormatter(point.label);
-    state.tooltipValue.textContent = state.valueFormatter(point.value);
+    state.tooltipLabel.textContent = tooltipContent.label || state.tooltipLabelFormatter(point.label);
+    state.tooltipValue.textContent = tooltipContent.value || "";
+    if (state.tooltipMeta) {
+      state.tooltipMeta.textContent = tooltipContent.meta || "";
+    }
     state.tooltip.classList.add("visible");
-    positionChartTooltip(state, point, rect);
+    positionChartTooltip(state, tooltipContent.point || point, rect);
+  };
+
+  const startDrag = (event) => {
+    if (!state.interaction || !state.bounds || !state.points.length || event.button !== 0) {
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (x < state.bounds.left || x > state.bounds.right || y < state.bounds.top || y > state.bounds.bottom) {
+      return;
+    }
+    event.preventDefault();
+    hideChartTooltip(state);
+    state.activeIndex = -1;
+    const zoomed = typeof state.interaction.isZoomed === "function" && state.interaction.isZoomed();
+    state.drag = zoomed
+      ? {
+          mode: "pan",
+          startX: x,
+          currentX: x,
+          originViewport:
+            typeof state.interaction.getViewport === "function" ? state.interaction.getViewport() : null,
+          lastPanDelta: 0
+        }
+      : {
+          mode: "select",
+          startX: x,
+          currentX: x
+        };
+    canvas.style.cursor = zoomed ? "grabbing" : "crosshair";
+    state.draw();
+  };
+
+  const moveDrag = (event) => {
+    if (!state.drag || !state.bounds || !state.points.length) {
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(state.bounds.left, Math.min(state.bounds.right, event.clientX - rect.left));
+    state.drag.currentX = x;
+    if (state.drag.mode === "pan") {
+      const width = Math.max(1, state.bounds.right - state.bounds.left);
+      const pointSpan = Math.max(1, state.points.length - 1);
+      const deltaPoints = Math.round(((state.drag.startX - x) / width) * pointSpan);
+      if (deltaPoints !== state.drag.lastPanDelta && typeof state.interaction.panViewport === "function") {
+        state.drag.lastPanDelta = deltaPoints;
+        state.interaction.panViewport(deltaPoints, state.drag.originViewport);
+      }
+      return;
+    }
+    state.draw();
+  };
+
+  const endDrag = () => {
+    if (!state.drag) {
+      return;
+    }
+    const drag = state.drag;
+    state.drag = null;
+    canvas.style.cursor = "crosshair";
+    if (
+      drag.mode === "select" &&
+      typeof state.interaction?.zoomRange === "function" &&
+      Math.abs(drag.currentX - drag.startX) > 6
+    ) {
+      let startIndex = 0;
+      let endIndex = 0;
+      let startDistance = Number.POSITIVE_INFINITY;
+      let endDistance = Number.POSITIVE_INFINITY;
+      state.points.forEach((point, index) => {
+        const distanceStart = Math.abs(point.x - drag.startX);
+        if (distanceStart < startDistance) {
+          startDistance = distanceStart;
+          startIndex = index;
+        }
+        const distanceEnd = Math.abs(point.x - drag.currentX);
+        if (distanceEnd < endDistance) {
+          endDistance = distanceEnd;
+          endIndex = index;
+        }
+      });
+      state.interaction.zoomRange(startIndex, endIndex);
+      return;
+    }
+    state.draw();
   };
 
   canvas.addEventListener("mousemove", updateHover);
   canvas.addEventListener("mouseleave", clearHover);
   canvas.addEventListener("blur", clearHover);
+  canvas.addEventListener("mousedown", startDrag);
+  canvas.addEventListener("dblclick", () => {
+    if (state.interaction && typeof state.interaction.resetZoom === "function") {
+      state.interaction.resetZoom();
+    }
+  });
+  if (typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("mousemove", moveDrag);
+    window.addEventListener("mouseup", endDrag);
+  }
   canvas.style.cursor = "crosshair";
   canvas.__lineChartState = state;
   return state;
@@ -6138,11 +6639,13 @@ function drawLineChart(canvas, labels, values, options = {}) {
     typeof options.axisLabelFormatter === "function" ? options.axisLabelFormatter : formatLineChartAxisLabel;
   const tooltipLabelFormatter =
     typeof options.tooltipLabelFormatter === "function" ? options.tooltipLabelFormatter : formatLineChartTooltipLabel;
+  const comparisonSeries = Array.isArray(options.series) ? options.series : [];
 
   if (!values || values.length === 0) {
     if (chartState && chartState.tooltip) {
       hideChartTooltip(chartState);
       chartState.points = [];
+      chartState.seriesPoints = [];
     }
     ctx.fillStyle = "#4b6056";
     ctx.font = compact ? "13px Space Grotesk" : "14px Space Grotesk";
@@ -6151,14 +6654,37 @@ function drawLineChart(canvas, labels, values, options = {}) {
   }
 
   const color = options.color || "#0e7a64";
+  const seriesDefinitions = [
+    {
+      name: options.seriesName || "Seria główna",
+      color,
+      dash: [],
+      values: values.map((value) => toChartNumOrNull(value)),
+      fill: true,
+      highlight: true,
+      lineWidth: compact ? 2.4 : 2.8
+    }
+  ].concat(
+    comparisonSeries.map((series, index) => ({
+      name: series.name || `Porównanie ${index + 1}`,
+      color: series.color || "#ff7f32",
+      dash: Array.isArray(series.dash) ? series.dash : [7, 5],
+      values: (Array.isArray(series.values) ? series.values : []).map((value) => toChartNumOrNull(value)),
+      fill: false,
+      highlight: false,
+      lineWidth: compact ? 1.8 : 2.1
+    }))
+  );
+  const legendSpace = seriesDefinitions.length > 1 ? (compact ? 22 : 26) : 0;
   const padding = compact
-    ? { left: 56, right: 14, top: 18, bottom: 32 }
-    : { left: 74, right: 20, top: 20, bottom: 36 };
+    ? { left: 56, right: 14, top: 18 + legendSpace, bottom: 32 }
+    : { left: 74, right: 20, top: 20 + legendSpace, bottom: 36 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
-  const minVal = Math.min(...values);
-  const maxVal = Math.max(...values);
+  const allValues = seriesDefinitions.flatMap((series) => series.values).filter((value) => value != null);
+  const minVal = allValues.length ? Math.min(...allValues) : 0;
+  const maxVal = allValues.length ? Math.max(...allValues) : 0;
   const isFlat = Math.abs(maxVal - minVal) < 1e-9;
   const flatPadding = isFlat ? Math.max(1, Math.abs(maxVal) * 0.05 || 1) : Math.max(1, Math.abs(maxVal - minVal) * 0.08);
   const plotMin = minVal - flatPadding;
@@ -6190,16 +6716,31 @@ function drawLineChart(canvas, labels, values, options = {}) {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
-  const points = values.map((value, idx) => {
-    const x =
-      values.length === 1
-        ? padding.left + chartWidth / 2
-        : padding.left + (chartWidth * idx) / Math.max(1, values.length - 1);
-    const y = padding.top + chartHeight - ((value - plotMin) / plotRange) * chartHeight;
-    return { x, y, value, label: labels[idx] || "" };
-  });
+  const xPositions = labels.map((_, idx) =>
+    labels.length === 1
+      ? padding.left + chartWidth / 2
+      : padding.left + (chartWidth * idx) / Math.max(1, labels.length - 1)
+  );
+  const primaryPoints = seriesDefinitions[0].values.map((value, idx) => ({
+    x: xPositions[idx],
+    y: value == null ? null : padding.top + chartHeight - ((value - plotMin) / plotRange) * chartHeight,
+    value,
+    label: labels[idx] || ""
+  }));
+  const seriesPoints = seriesDefinitions.map((series) =>
+    labels.map((label, idx) => {
+      const value = idx < series.values.length ? series.values[idx] : null;
+      return {
+        x: xPositions[idx],
+        y: value == null ? null : padding.top + chartHeight - ((value - plotMin) / plotRange) * chartHeight,
+        value,
+        label: label || ""
+      };
+    })
+  );
   if (chartState) {
-    chartState.points = points;
+    chartState.points = primaryPoints;
+    chartState.seriesPoints = seriesPoints;
     chartState.bounds = {
       left: padding.left,
       right: width - padding.right,
@@ -6209,60 +6750,124 @@ function drawLineChart(canvas, labels, values, options = {}) {
     chartState.valueFormatter = valueFormatter;
     chartState.tooltipLabelFormatter = tooltipLabelFormatter;
     chartState.axisLabelFormatter = axisLabelFormatter;
+    chartState.tooltipContentBuilder = (index) => {
+      const label = tooltipLabelFormatter(labels[index] || "");
+      const primaryPoint = seriesPoints[0][index];
+      const fallbackPoint = seriesPoints.find((items) => items[index] && items[index].y != null);
+      const meta = seriesDefinitions
+        .slice(1)
+        .map((series, seriesIndex) => {
+          const point = seriesPoints[seriesIndex + 1][index];
+          return point && point.value != null ? `${series.name}: ${valueFormatter(point.value)}` : "";
+        })
+        .filter(Boolean)
+        .join(" | ");
+      return {
+        label,
+        value:
+          primaryPoint && primaryPoint.value != null
+            ? `${seriesDefinitions[0].name}: ${valueFormatter(primaryPoint.value)}`
+            : `${seriesDefinitions[0].name}: -`,
+        meta,
+        point: fallbackPoint ? { x: fallbackPoint[index].x, y: fallbackPoint[index].y || padding.top } : primaryPoint
+      };
+    };
+    chartState.interaction = options.interaction || null;
     chartState.draw = () => drawLineChart(canvas, labels, values, options);
-    if (chartState.activeIndex >= points.length) {
+    if (chartState.activeIndex >= primaryPoints.length) {
       chartState.activeIndex = -1;
     }
+  }
+
+  if (seriesDefinitions.length > 1) {
+    let legendX = padding.left;
+    const legendY = compact ? 15 : 18;
+    ctx.font = compact ? "10px Space Grotesk" : "11px Space Grotesk";
+    ctx.textBaseline = "middle";
+    seriesDefinitions.forEach((series) => {
+      ctx.save();
+      ctx.strokeStyle = series.color;
+      ctx.lineWidth = 2.2;
+      ctx.setLineDash(series.dash);
+      ctx.beginPath();
+      ctx.moveTo(legendX, legendY);
+      ctx.lineTo(legendX + 18, legendY);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = "#30473e";
+      ctx.fillText(series.name, legendX + 24, legendY);
+      legendX += 24 + ctx.measureText(series.name).width + 18;
+    });
+    ctx.textBaseline = "alphabetic";
   }
 
   const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
   gradient.addColorStop(0, `${color}52`);
   gradient.addColorStop(1, `${color}06`);
+  const filledPrimary = primaryPoints.filter((point) => point.y != null);
+  if (filledPrimary.length) {
+    ctx.beginPath();
+    filledPrimary.forEach((point, idx) => {
+      if (idx === 0) {
+        ctx.moveTo(point.x, point.y);
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    });
+    ctx.lineTo(filledPrimary[filledPrimary.length - 1].x, height - padding.bottom);
+    ctx.lineTo(filledPrimary[0].x, height - padding.bottom);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+  }
 
-  ctx.beginPath();
-  points.forEach((point, idx) => {
-    if (idx === 0) {
-      ctx.moveTo(point.x, point.y);
-    } else {
-      ctx.lineTo(point.x, point.y);
+  seriesDefinitions.forEach((series, seriesIndex) => {
+    const points = seriesPoints[seriesIndex];
+    let started = false;
+    ctx.beginPath();
+    points.forEach((point) => {
+      if (point.y == null) {
+        started = false;
+        return;
+      }
+      if (!started) {
+        ctx.moveTo(point.x, point.y);
+        started = true;
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    });
+    if (!started) {
+      return;
     }
-  });
-  ctx.lineTo(points[points.length - 1].x, height - padding.bottom);
-  ctx.lineTo(points[0].x, height - padding.bottom);
-  ctx.closePath();
-  ctx.fillStyle = gradient;
-  ctx.fill();
-
-  ctx.beginPath();
-  points.forEach((point, idx) => {
-    if (idx === 0) {
-      ctx.moveTo(point.x, point.y);
-    } else {
-      ctx.lineTo(point.x, point.y);
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.setLineDash(series.dash);
+    if (seriesIndex === 0) {
+      ctx.shadowColor = `${series.color}30`;
+      ctx.shadowBlur = 16;
     }
+    ctx.lineWidth = series.lineWidth;
+    ctx.strokeStyle = series.color;
+    ctx.stroke();
+    ctx.restore();
   });
-  ctx.save();
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.shadowColor = `${color}30`;
-  ctx.shadowBlur = 16;
-  ctx.lineWidth = compact ? 2.4 : 2.8;
-  ctx.strokeStyle = color;
-  ctx.stroke();
-  ctx.restore();
 
-  const last = points[points.length - 1];
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(last.x, last.y, compact ? 4 : 4.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.fillStyle = "#ffffff";
-  ctx.arc(last.x, last.y, compact ? 1.7 : 2, 0, Math.PI * 2);
-  ctx.fill();
+  const lastPrimary = [...primaryPoints].reverse().find((point) => point.y != null);
+  if (lastPrimary) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(lastPrimary.x, lastPrimary.y, compact ? 4 : 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.fillStyle = "#ffffff";
+    ctx.arc(lastPrimary.x, lastPrimary.y, compact ? 1.7 : 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  const activePoint = chartState && chartState.activeIndex >= 0 ? points[chartState.activeIndex] : null;
-  if (activePoint) {
+  const activePoint = chartState && chartState.activeIndex >= 0 ? primaryPoints[chartState.activeIndex] : null;
+  if (activePoint && chartState && !chartState.drag) {
     ctx.save();
     ctx.setLineDash([5, 5]);
     ctx.strokeStyle = "rgba(0, 87, 71, 0.34)";
@@ -6273,29 +6878,54 @@ function drawLineChart(canvas, labels, values, options = {}) {
     ctx.stroke();
     ctx.restore();
 
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(activePoint.x, activePoint.y, compact ? 5 : 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    seriesDefinitions.forEach((series, seriesIndex) => {
+      const point = seriesPoints[seriesIndex][chartState.activeIndex];
+      if (!point || point.y == null) {
+        return;
+      }
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = series.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, compact ? 4.6 : 5.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
   } else if (chartState && chartState.tooltip) {
     hideChartTooltip(chartState);
+  }
+
+  if (chartState && chartState.drag && chartState.drag.mode === "select") {
+    const left = Math.min(chartState.drag.startX, chartState.drag.currentX);
+    const selectionWidth = Math.abs(chartState.drag.currentX - chartState.drag.startX);
+    if (selectionWidth > 0) {
+      ctx.save();
+      ctx.fillStyle = "rgba(14, 122, 100, 0.12)";
+      ctx.strokeStyle = "rgba(14, 122, 100, 0.34)";
+      ctx.setLineDash([6, 5]);
+      ctx.fillRect(left, padding.top, selectionWidth, chartHeight);
+      ctx.strokeRect(left, padding.top, selectionWidth, chartHeight);
+      ctx.restore();
+    }
   }
 
   const xLabelIndices = Array.from(
     new Set(
       compact
-        ? [0, Math.round((points.length - 1) / 2), points.length - 1]
-        : [0, Math.round((points.length - 1) / 3), Math.round(((points.length - 1) * 2) / 3), points.length - 1]
+        ? [0, Math.round((primaryPoints.length - 1) / 2), primaryPoints.length - 1]
+        : [
+            0,
+            Math.round((primaryPoints.length - 1) / 3),
+            Math.round(((primaryPoints.length - 1) * 2) / 3),
+            primaryPoints.length - 1
+          ]
     )
-  ).filter((index) => index >= 0 && index < points.length);
+  ).filter((index) => index >= 0 && index < primaryPoints.length);
   ctx.fillStyle = "#30473e";
   ctx.font = compact ? "10px Space Grotesk" : "11px Space Grotesk";
   ctx.textBaseline = "top";
   xLabelIndices.forEach((index) => {
-    const point = points[index];
+    const point = primaryPoints[index];
     const text = axisLabelFormatter(labels[index] || "");
     const metrics = ctx.measureText(text);
     let x = point.x - metrics.width / 2;
@@ -7234,6 +7864,10 @@ function formatFloat(value) {
   }).format(safeValue);
 }
 
+function formatPercent(value) {
+  return `${formatFloat(value)}%`;
+}
+
 function formatInt(value) {
   const safeValue = Number.isFinite(value) ? value : 0;
   return new Intl.NumberFormat("pl-PL", {
@@ -7375,7 +8009,11 @@ if (typeof globalThis !== "undefined" && globalThis.__MYFUND_ENABLE_TEST_HOOKS__
     syncEditingForms,
     shouldUseBackendMetrics,
     normalizeLineChartRange,
+    normalizeLineChartMode,
     sliceLineChartSeriesByRange,
+    computeReturnSeries,
+    extractBenchmarkSeriesFromRows,
+    alignBenchmarkHistoryToSeries,
     buildCandlestickTooltipContent
   };
 }

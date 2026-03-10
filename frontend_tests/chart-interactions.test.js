@@ -123,6 +123,46 @@ test("sliceLineChartSeriesByRange falls back to last points when labels are not 
   assert.equal(view.labels[89], "P120");
 });
 
+test("computeReturnSeries normalizes window to cumulative percent", () => {
+  const hooks = createHarness();
+  const result = hooks.computeReturnSeries([100, 110, 90]);
+
+  assert.deepEqual(result, [0, 10, -10]);
+});
+
+test("extractBenchmarkSeriesFromRows parses benchmark column from report rows", () => {
+  const hooks = createHarness();
+  const result = hooks.extractBenchmarkSeriesFromRows(
+    ["Data", "Stopa zwrotu %", "Benchmark %"],
+    [
+      ["2026-03-01", "2,5%", "1,5%"],
+      ["2026-03-02", "-1,0%", "0,25%"]
+    ]
+  );
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].name, "Benchmark %");
+  assert.deepEqual(result[0].values, [1.5, 0.25]);
+});
+
+test("alignBenchmarkHistoryToSeries carries forward latest close for dashboard benchmark", () => {
+  const hooks = createHarness();
+  const aligned = hooks.alignBenchmarkHistoryToSeries(
+    [
+      { date: "2026-03-01" },
+      { date: "2026-03-03" },
+      { date: "2026-03-05" }
+    ],
+    [
+      { date: "2026-02-28", close: 98 },
+      { date: "2026-03-02", close: 101 },
+      { date: "2026-03-04", close: 105 }
+    ]
+  );
+
+  assert.deepEqual(Array.from(aligned), [98, 101, 105]);
+});
+
 test("buildCandlestickTooltipContent formats date OHLC and volume", () => {
   const hooks = createHarness();
   const tooltip = hooks.buildCandlestickTooltipContent({

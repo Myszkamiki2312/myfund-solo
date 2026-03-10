@@ -3,8 +3,10 @@ export function renderDashboard(deps) {
     dom,
     state,
     computeMetrics,
-    buildSeries,
+    dashboardSeries,
+    dashboardComparisonSeries,
     formatMoney,
+    formatPercent,
     drawLineChart,
     getVisibleLineChartModel,
     escapeHtml,
@@ -15,7 +17,7 @@ export function renderDashboard(deps) {
 
   const portfolioId = dom.dashboardPortfolioSelect.value || "";
   const metrics = computeMetrics(portfolioId);
-  const series = buildSeries(portfolioId);
+  const series = Array.isArray(dashboardSeries) ? dashboardSeries : [];
 
   dom.statMarketValue.textContent = formatMoney(metrics.marketValue);
   dom.statCash.textContent = formatMoney(metrics.cashTotal);
@@ -26,7 +28,11 @@ export function renderDashboard(deps) {
   const chartView = getVisibleLineChartModel(
     "dashboard",
     series.map((point) => point.date),
-    series.map((point) => point.marketValue)
+    series.map((point) => point.marketValue),
+    {
+      comparisonSeries: Array.isArray(dashboardComparisonSeries) ? dashboardComparisonSeries : [],
+      comparisonVisibility: "return-only"
+    }
   );
 
   drawLineChart(
@@ -35,7 +41,10 @@ export function renderDashboard(deps) {
     chartView.values,
     {
       color: "#0e7a64",
-      valueFormatter: (value) => formatMoney(value)
+      valueFormatter: (value) => (chartView.mode === "return" ? formatPercent(value) : formatMoney(value)),
+      seriesName: "Portfel",
+      series: chartView.comparisonSeries,
+      interaction: chartView.interaction
     }
   );
 

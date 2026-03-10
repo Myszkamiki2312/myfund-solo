@@ -203,13 +203,31 @@ body {
   flex-wrap: wrap;
 }
 
+.chart-mode-group {
+  display: inline-flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .chart-range-btn {
   min-height: 36px;
   padding: 0.44rem 0.72rem;
   border-radius: 999px;
 }
 
+.chart-mode-btn {
+  min-height: 36px;
+  padding: 0.44rem 0.72rem;
+  border-radius: 999px;
+}
+
 .chart-range-btn.active {
+  background: linear-gradient(120deg, var(--brand-strong), var(--brand));
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.chart-mode-btn.active {
   background: linear-gradient(120deg, var(--brand-strong), var(--brand));
   border-color: transparent;
   color: #ffffff;
@@ -643,7 +661,15 @@ hr {
     width: 100%;
   }
 
+  .chart-mode-group {
+    width: 100%;
+  }
+
   .chart-range-btn {
+    flex: 1 1 auto;
+  }
+
+  .chart-mode-btn {
     flex: 1 1 auto;
   }
 
