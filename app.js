@@ -157,6 +157,14 @@ const ACTIVE_PLANNED = {
   planned: "Do rozbudowy"
 };
 
+const LINE_CHART_RANGES = [
+  { key: "30", days: 30 },
+  { key: "90", days: 90 },
+  { key: "180", days: 180 },
+  { key: "365", days: 365 },
+  { key: "all", days: null }
+];
+
 let state = loadState();
 const dom = {};
 const backendSync = {
@@ -178,6 +186,14 @@ const candlesView = {
   ticker: "",
   signal: "",
   indicators: {}
+};
+const lineChartViews = {
+  dashboard: {
+    rangeKey: "all"
+  },
+  report: {
+    rangeKey: "all"
+  }
 };
 const editingState = {
   portfolioId: "",
@@ -244,6 +260,9 @@ function cacheDom() {
   dom.statNetWorth = document.getElementById("statNetWorth");
   dom.statTotalPl = document.getElementById("statTotalPl");
   dom.dashboardChart = document.getElementById("dashboardChart");
+  dom.dashboardChartRangeControls = document.getElementById("dashboardChartRangeControls");
+  dom.dashboardChartRangeInfo = document.getElementById("dashboardChartRangeInfo");
+  dom.dashboardChartExportBtn = document.getElementById("dashboardChartExportBtn");
   dom.dashboardDetails = document.getElementById("dashboardDetails");
 
   dom.portfolioForm = document.getElementById("portfolioForm");
@@ -308,6 +327,9 @@ function cacheDom() {
   dom.reportInfo = document.getElementById("reportInfo");
   dom.reportOutput = document.getElementById("reportOutput");
   dom.reportChart = document.getElementById("reportChart");
+  dom.reportChartRangeControls = document.getElementById("reportChartRangeControls");
+  dom.reportChartRangeInfo = document.getElementById("reportChartRangeInfo");
+  dom.reportChartExportBtn = document.getElementById("reportChartExportBtn");
 
   dom.alertForm = document.getElementById("alertForm");
   dom.alertEditId = document.getElementById("alertEditId");
@@ -375,6 +397,7 @@ function cacheDom() {
   dom.openTradingviewBtn = document.getElementById("openTradingviewBtn");
   dom.candlesInfo = document.getElementById("candlesInfo");
   dom.candlesChart = document.getElementById("candlesChart");
+  dom.candlesChartExportBtn = document.getElementById("candlesChartExportBtn");
   dom.candlesWindowInput = document.getElementById("candlesWindowInput");
   dom.candlesOffsetInput = document.getElementById("candlesOffsetInput");
   dom.candlesResetZoomBtn = document.getElementById("candlesResetZoomBtn");
@@ -447,6 +470,12 @@ function bindEvents() {
   dom.dashboardPortfolioSelect.addEventListener("change", renderDashboard);
   dom.reportPortfolioSelect.addEventListener("change", renderReportCurrent);
   window.addEventListener("resize", scheduleResponsiveChartRefresh);
+  bindLineChartRangeControls("dashboard", dom.dashboardChartRangeControls, () => {
+    renderDashboard();
+  });
+  bindLineChartRangeControls("report", dom.reportChartRangeControls, () => {
+    void renderReportCurrent({ force: true });
+  });
 
   dom.portfolioForm.addEventListener("submit", onPortfolioSubmit);
   dom.portfolioCancelEditBtn.addEventListener("click", () => {
@@ -485,6 +514,14 @@ function bindEvents() {
   dom.generateReportBtn.addEventListener("click", (event) => {
     event.preventDefault();
     void renderReportCurrent({ force: true });
+  });
+  dom.dashboardChartExportBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    exportCanvasAsPng(dom.dashboardChart, `prywatny-portfel-kokpit-${todayIso()}.png`);
+  });
+  dom.reportChartExportBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    exportCanvasAsPng(dom.reportChart, `prywatny-portfel-raport-${todayIso()}.png`);
   });
   dom.alertForm.addEventListener("submit", onAlertSubmit);
   dom.alertCancelEditBtn.addEventListener("click", () => {
@@ -586,6 +623,10 @@ function bindEvents() {
   dom.openTradingviewBtn.addEventListener("click", (event) => {
     event.preventDefault();
     void openTradingview();
+  });
+  dom.candlesChartExportBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    exportCanvasAsPng(dom.candlesChart, `prywatny-portfel-swiece-${todayIso()}.png`);
   });
   dom.candlesWindowInput.addEventListener("input", () => {
     applyCandlesWindowFromInput();
@@ -1753,6 +1794,138 @@ function renderScannerRows(items) {
     ["Ticker", "Nazwa", "Sygnał", "Score", "Ryzyko", "Cena", "Udział %", "P/L %", "Sektor", "Uzasadnienie"],
     rows
   );
+}
+
+function bindLineChartRangeControls(chartKey, container, rerender) {
+  if (!container) {
+    return;
+  }
+  container.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-range-key]");
+    if (!button) {
+      return;
+    }
+    event.preventDefault();
+    const nextRangeKey = normalizeLineChartRange(button.dataset.rangeKey);
+    if (!lineChartViews[chartKey] || lineChartViews[chartKey].rangeKey === nextRangeKey) {
+      return;
+    }
+    lineChartViews[chartKey].rangeKey = nextRangeKey;
+    rerender();
+  });
+}
+
+function normalizeLineChartRange(rangeKey) {
+  const value = String(rangeKey || "all").trim().toLowerCase();
+  return LINE_CHART_RANGES.some((item) => item.key === value) ? value : "all";
+}
+
+function getLineChartRangeDays(rangeKey) {
+  const match = LINE_CHART_RANGES.find((item) => item.key === normalizeLineChartRange(rangeKey));
+  return match ? match.days : null;
+}
+
+function parseLineChartDateLabel(label) {
+  const text = String(label || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return null;
+  }
+  const parsed = new Date(`${text}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatLineChartRangeInfo(visiblePoints, allPoints, usesDates) {
+  if (!visiblePoints.length || !allPoints.length) {
+    return "Brak danych do wykresu.";
+  }
+  if (usesDates) {
+    return `Zakres: ${formatLineChartAxisLabel(visiblePoints[0].label)} -> ${formatLineChartAxisLabel(
+      visiblePoints[visiblePoints.length - 1].label
+    )} | ${visiblePoints.length}/${allPoints.length} pkt`;
+  }
+  return `Widok: ${visiblePoints.length}/${allPoints.length} pkt`;
+}
+
+function sliceLineChartSeriesByRange(labels, values, rangeKey) {
+  const normalizedRangeKey = normalizeLineChartRange(rangeKey);
+  const points = (values || []).map((value, index) => ({
+    label: labels[index] || "",
+    value: toNum(value),
+    parsedDate: parseLineChartDateLabel(labels[index] || "")
+  }));
+  if (!points.length) {
+    return {
+      labels: [],
+      values: [],
+      rangeKey: normalizedRangeKey,
+      info: "Brak danych do wykresu."
+    };
+  }
+
+  const rangeDays = getLineChartRangeDays(normalizedRangeKey);
+  let visiblePoints = points.slice();
+  const allHaveDates = points.every((point) => point.parsedDate instanceof Date);
+  if (rangeDays) {
+    if (allHaveDates) {
+      const lastDate = points[points.length - 1].parsedDate;
+      const threshold = new Date(lastDate.getTime());
+      threshold.setDate(threshold.getDate() - rangeDays + 1);
+      visiblePoints = points.filter((point) => point.parsedDate >= threshold);
+    } else {
+      visiblePoints = points.slice(-Math.min(points.length, rangeDays));
+    }
+    if (points.length > 1 && visiblePoints.length < 2) {
+      visiblePoints = points.slice(-Math.min(points.length, 2));
+    }
+  }
+
+  return {
+    labels: visiblePoints.map((point) => point.label),
+    values: visiblePoints.map((point) => point.value),
+    rangeKey: normalizedRangeKey,
+    info: formatLineChartRangeInfo(visiblePoints, points, allHaveDates)
+  };
+}
+
+function chartControlsForKey(chartKey) {
+  if (chartKey === "dashboard") {
+    return {
+      buttonsWrap: dom.dashboardChartRangeControls,
+      info: dom.dashboardChartRangeInfo
+    };
+  }
+  if (chartKey === "report") {
+    return {
+      buttonsWrap: dom.reportChartRangeControls,
+      info: dom.reportChartRangeInfo
+    };
+  }
+  return {
+    buttonsWrap: null,
+    info: null
+  };
+}
+
+function syncLineChartControls(chartKey, infoText = "") {
+  const controls = chartControlsForKey(chartKey);
+  const activeRangeKey = lineChartViews[chartKey] ? lineChartViews[chartKey].rangeKey : "all";
+  if (controls.buttonsWrap) {
+    controls.buttonsWrap.querySelectorAll("[data-range-key]").forEach((button) => {
+      const isActive = normalizeLineChartRange(button.dataset.rangeKey) === activeRangeKey;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+  if (controls.info) {
+    controls.info.textContent = infoText;
+  }
+}
+
+function getVisibleLineChartModel(chartKey, labels, values) {
+  const rangeKey = lineChartViews[chartKey] ? lineChartViews[chartKey].rangeKey : "all";
+  const view = sliceLineChartSeriesByRange(labels, values, rangeKey);
+  syncLineChartControls(chartKey, view.info);
+  return view;
 }
 
 function scheduleResponsiveChartRefresh() {
@@ -4148,6 +4321,31 @@ function onBackupExport() {
   URL.revokeObjectURL(url);
 }
 
+function exportCanvasAsPng(canvas, fileName) {
+  if (!canvas || typeof document === "undefined") {
+    return;
+  }
+  const exportCanvas = document.createElement("canvas");
+  if (!exportCanvas || !exportCanvas.getContext) {
+    return;
+  }
+  exportCanvas.width = canvas.width;
+  exportCanvas.height = canvas.height;
+  const exportCtx = exportCanvas.getContext("2d");
+  if (!exportCtx) {
+    return;
+  }
+  exportCtx.fillStyle = "#f4f8f5";
+  exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+  exportCtx.drawImage(canvas, 0, 0);
+  const link = document.createElement("a");
+  link.href = exportCanvas.toDataURL("image/png");
+  link.download = fileName || `wykres-${todayIso()}.png`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function onBackupImport(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) {
@@ -4615,6 +4813,7 @@ function renderDashboard() {
       buildSeries,
       formatMoney,
       drawLineChart,
+      getVisibleLineChartModel,
       escapeHtml,
       formatFloat,
       renderTable,
@@ -4652,7 +4851,8 @@ async function renderReportCurrent(arg = null) {
       const remote = normalizeRemoteReport(payload.report);
       dom.reportInfo.textContent = remote.info;
       renderTable(dom.reportOutput, remote.headers, remote.rows);
-      drawLineChart(dom.reportChart, remote.chart.labels, remote.chart.values, {
+      const chartView = getVisibleLineChartModel("report", remote.chart.labels, remote.chart.values);
+      drawLineChart(dom.reportChart, chartView.labels, chartView.values, {
         color: remote.chart.color || "#ff7f32",
         valueFormatter: (value) => formatFloat(value)
       });
@@ -4668,7 +4868,8 @@ async function renderReportCurrent(arg = null) {
   }
   dom.reportInfo.textContent = report.info;
   renderTable(dom.reportOutput, report.headers, report.rows);
-  drawLineChart(dom.reportChart, report.chart.labels || [], report.chart.values || [], {
+  const chartView = getVisibleLineChartModel("report", report.chart.labels || [], report.chart.values || []);
+  drawLineChart(dom.reportChart, chartView.labels, chartView.values, {
     color: report.chart.color || "#ff7f32",
     valueFormatter: (value) => formatFloat(value)
   });
@@ -5782,12 +5983,15 @@ function formatLineChartTooltipLabel(label) {
   return text;
 }
 
-function ensureLineChartState(canvas) {
+function ensureChartTooltipElements(canvas, includeMeta = false) {
   if (!canvas) {
-    return null;
-  }
-  if (canvas.__lineChartState) {
-    return canvas.__lineChartState;
+    return {
+      wrap: null,
+      tooltip: null,
+      tooltipLabel: null,
+      tooltipValue: null,
+      tooltipMeta: null
+    };
   }
   const wrap = canvas.parentElement;
   let tooltip = wrap ? wrap.querySelector(".chart-tooltip") : null;
@@ -5801,14 +6005,60 @@ function ensureLineChartState(canvas) {
     tooltip.append(label, value);
     wrap.appendChild(tooltip);
   }
+  if (tooltip && includeMeta && !tooltip.querySelector(".chart-tooltip-meta")) {
+    const meta = document.createElement("div");
+    meta.className = "chart-tooltip-meta";
+    tooltip.appendChild(meta);
+  }
+  return {
+    wrap,
+    tooltip,
+    tooltipLabel: tooltip ? tooltip.querySelector(".chart-tooltip-label") : null,
+    tooltipValue: tooltip ? tooltip.querySelector(".chart-tooltip-value") : null,
+    tooltipMeta: tooltip ? tooltip.querySelector(".chart-tooltip-meta") : null
+  };
+}
+
+function hideChartTooltip(state) {
+  if (state && state.tooltip) {
+    state.tooltip.classList.remove("visible");
+  }
+}
+
+function positionChartTooltip(state, point, canvasRect) {
+  if (!state || !state.tooltip) {
+    return;
+  }
+  const wrapRect = state.wrap ? state.wrap.getBoundingClientRect() : canvasRect;
+  const tooltipWidth = state.tooltip.offsetWidth || 148;
+  const tooltipHeight = state.tooltip.offsetHeight || 54;
+  let left = point.x + 14;
+  let top = point.y - tooltipHeight - 14;
+  if (left + tooltipWidth > wrapRect.width - 10) {
+    left = point.x - tooltipWidth - 14;
+  }
+  if (top < 10) {
+    top = point.y + 14;
+  }
+  left = Math.max(10, Math.min(left, wrapRect.width - tooltipWidth - 10));
+  top = Math.max(10, Math.min(top, wrapRect.height - tooltipHeight - 10));
+  state.tooltip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+}
+
+function ensureLineChartState(canvas) {
+  if (!canvas) {
+    return null;
+  }
+  if (canvas.__lineChartState) {
+    return canvas.__lineChartState;
+  }
+  const tooltipState = ensureChartTooltipElements(canvas);
 
   const state = {
     activeIndex: -1,
     points: [],
     bounds: null,
-    tooltip,
-    tooltipLabel: tooltip ? tooltip.querySelector(".chart-tooltip-label") : null,
-    tooltipValue: tooltip ? tooltip.querySelector(".chart-tooltip-value") : null,
+    ...tooltipState,
     valueFormatter: defaultLineChartValueFormatter,
     tooltipLabelFormatter: formatLineChartTooltipLabel,
     draw: () => {},
@@ -5820,9 +6070,7 @@ function ensureLineChartState(canvas) {
       return;
     }
     state.activeIndex = -1;
-    if (state.tooltip) {
-      state.tooltip.classList.remove("visible");
-    }
+    hideChartTooltip(state);
     state.draw();
   };
 
@@ -5866,21 +6114,7 @@ function ensureLineChartState(canvas) {
     state.tooltipLabel.textContent = state.tooltipLabelFormatter(point.label);
     state.tooltipValue.textContent = state.valueFormatter(point.value);
     state.tooltip.classList.add("visible");
-
-    const wrapRect = wrap ? wrap.getBoundingClientRect() : rect;
-    const tooltipWidth = state.tooltip.offsetWidth || 148;
-    const tooltipHeight = state.tooltip.offsetHeight || 54;
-    let left = point.x + 14;
-    let top = point.y - tooltipHeight - 14;
-    if (left + tooltipWidth > wrapRect.width - 10) {
-      left = point.x - tooltipWidth - 14;
-    }
-    if (top < 10) {
-      top = point.y + 14;
-    }
-    left = Math.max(10, Math.min(left, wrapRect.width - tooltipWidth - 10));
-    top = Math.max(10, Math.min(top, wrapRect.height - tooltipHeight - 10));
-    state.tooltip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    positionChartTooltip(state, point, rect);
   };
 
   canvas.addEventListener("mousemove", updateHover);
@@ -5907,7 +6141,7 @@ function drawLineChart(canvas, labels, values, options = {}) {
 
   if (!values || values.length === 0) {
     if (chartState && chartState.tooltip) {
-      chartState.tooltip.classList.remove("visible");
+      hideChartTooltip(chartState);
       chartState.points = [];
     }
     ctx.fillStyle = "#4b6056";
@@ -6047,7 +6281,7 @@ function drawLineChart(canvas, labels, values, options = {}) {
     ctx.fill();
     ctx.stroke();
   } else if (chartState && chartState.tooltip) {
-    chartState.tooltip.classList.remove("visible");
+    hideChartTooltip(chartState);
   }
 
   const xLabelIndices = Array.from(
@@ -6070,14 +6304,111 @@ function drawLineChart(canvas, labels, values, options = {}) {
   });
 }
 
+function buildCandlestickTooltipContent(candle) {
+  return {
+    label: formatLineChartTooltipLabel(candle.date || ""),
+    value: `C ${formatFloat(toNum(candle.close))}`,
+    meta:
+      `O ${formatFloat(toNum(candle.open))}  ` +
+      `H ${formatFloat(toNum(candle.high))}  ` +
+      `L ${formatFloat(toNum(candle.low))}  ` +
+      `V ${formatInt(toNum(candle.volume))}`
+  };
+}
+
+function ensureCandlestickChartState(canvas) {
+  if (!canvas) {
+    return null;
+  }
+  if (canvas.__candlestickChartState) {
+    return canvas.__candlestickChartState;
+  }
+  const tooltipState = ensureChartTooltipElements(canvas, true);
+  const state = {
+    activeIndex: -1,
+    candles: [],
+    bounds: null,
+    ...tooltipState,
+    draw: () => {}
+  };
+
+  const clearHover = () => {
+    if (state.activeIndex === -1) {
+      return;
+    }
+    state.activeIndex = -1;
+    hideChartTooltip(state);
+    state.draw();
+  };
+
+  const updateHover = (event) => {
+    if (!state.candles.length || !state.bounds) {
+      clearHover();
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (
+      x < state.bounds.left ||
+      x > state.bounds.right ||
+      y < state.bounds.top - 18 ||
+      y > state.bounds.bottom + 18
+    ) {
+      clearHover();
+      return;
+    }
+
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    state.candles.forEach((point, index) => {
+      const distance = Math.abs(point.x - x);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    });
+
+    if (state.activeIndex !== nearestIndex) {
+      state.activeIndex = nearestIndex;
+      state.draw();
+    }
+
+    const candle = state.candles[state.activeIndex];
+    if (!candle || !state.tooltip || !state.tooltipLabel || !state.tooltipValue) {
+      return;
+    }
+    const tooltip = buildCandlestickTooltipContent(candle);
+    state.tooltipLabel.textContent = tooltip.label;
+    state.tooltipValue.textContent = tooltip.value;
+    if (state.tooltipMeta) {
+      state.tooltipMeta.textContent = tooltip.meta;
+    }
+    state.tooltip.classList.add("visible");
+    positionChartTooltip(state, { x: candle.x, y: candle.bodyTop }, rect);
+  };
+
+  canvas.addEventListener("mousemove", updateHover);
+  canvas.addEventListener("mouseleave", clearHover);
+  canvas.addEventListener("blur", clearHover);
+  canvas.style.cursor = "crosshair";
+  canvas.__candlestickChartState = state;
+  return state;
+}
+
 function drawCandlestickChart(canvas, candles) {
   const frame = prepareCanvasFrame(canvas);
   if (!frame) {
     return;
   }
   const { ctx, width, height, compact } = frame;
+  const chartState = ensureCandlestickChartState(canvas);
 
   if (!candles || candles.length === 0) {
+    if (chartState) {
+      chartState.candles = [];
+      hideChartTooltip(chartState);
+    }
     ctx.fillStyle = "#4b6056";
     ctx.font = compact ? "13px Space Grotesk" : "14px Space Grotesk";
     ctx.fillText("Brak danych świecowych.", 20, 26);
@@ -6098,18 +6429,33 @@ function drawCandlestickChart(canvas, candles) {
   const chartHeight = height - pad.top - pad.bottom;
   const candleSpace = chartWidth / sample.length;
   const candleWidth = Math.max(2, candleSpace * 0.55);
+  const yTickCount = 4;
+
+  const chartBackground = ctx.createLinearGradient(0, pad.top, 0, height - pad.bottom);
+  chartBackground.addColorStop(0, "rgba(255, 127, 50, 0.05)");
+  chartBackground.addColorStop(1, "rgba(255, 127, 50, 0.01)");
+  ctx.fillStyle = chartBackground;
+  ctx.fillRect(pad.left, pad.top, chartWidth, chartHeight);
 
   ctx.strokeStyle = "rgba(168, 185, 163, 0.5)";
   ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i += 1) {
-    const y = pad.top + (chartHeight / 4) * i;
+  ctx.fillStyle = "rgba(75, 96, 86, 0.9)";
+  ctx.font = compact ? "10px IBM Plex Mono" : "11px IBM Plex Mono";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i <= yTickCount; i += 1) {
+    const y = pad.top + (chartHeight / yTickCount) * i;
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
+    const tickValue = maxVal - (range * i) / yTickCount;
+    ctx.fillText(formatFloat(tickValue), pad.left - 8, y);
   }
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
 
-  sample.forEach((item, idx) => {
+  const candlePoints = sample.map((item, idx) => {
     const open = toNum(item.open);
     const close = toNum(item.close);
     const high = toNum(item.high);
@@ -6129,20 +6475,73 @@ function drawCandlestickChart(canvas, candles) {
     const top = Math.min(yOpen, yClose);
     const bodyHeight = Math.max(1.5, Math.abs(yClose - yOpen));
     ctx.fillRect(x - candleWidth / 2, top, candleWidth, bodyHeight);
+    return {
+      date: item.date || "",
+      open,
+      close,
+      high,
+      low,
+      volume: toNum(item.volume),
+      x,
+      bodyTop: top,
+      bodyHeight,
+      up
+    };
   });
 
-  ctx.fillStyle = "#30473e";
-  ctx.font = compact ? "10px IBM Plex Mono" : "12px IBM Plex Mono";
-  ctx.fillText(formatFloat(maxVal), 4, pad.top + 10);
-  ctx.fillText(formatFloat(minVal), 4, height - pad.bottom);
+  if (chartState) {
+    chartState.candles = candlePoints;
+    chartState.bounds = {
+      left: pad.left,
+      right: width - pad.right,
+      top: pad.top,
+      bottom: height - pad.bottom
+    };
+    chartState.draw = () => drawCandlestickChart(canvas, candles);
+    if (chartState.activeIndex >= candlePoints.length) {
+      chartState.activeIndex = -1;
+    }
+  }
+
+  const activeCandle = chartState && chartState.activeIndex >= 0 ? candlePoints[chartState.activeIndex] : null;
+  if (activeCandle) {
+    ctx.save();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(82, 70, 36, 0.36)";
+    ctx.beginPath();
+    ctx.moveTo(activeCandle.x, pad.top);
+    ctx.lineTo(activeCandle.x, height - pad.bottom);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = activeCandle.up ? "#0e7a64" : "#b04444";
+    ctx.strokeRect(
+      activeCandle.x - candleWidth / 2 - 2,
+      activeCandle.bodyTop - 2,
+      candleWidth + 4,
+      activeCandle.bodyHeight + 4
+    );
+  } else if (chartState) {
+    hideChartTooltip(chartState);
+  }
 
   const first = sample[0];
   const last = sample[sample.length - 1];
   ctx.font = compact ? "10px Space Grotesk" : "12px Space Grotesk";
-  ctx.fillText(first.date || "", pad.left, height - 6);
+  ctx.fillStyle = "#30473e";
+  ctx.fillText(formatLineChartAxisLabel(first.date || ""), pad.left, height - 6);
   const lastLabel = last.date || "";
-  const lastLabelWidth = ctx.measureText(lastLabel).width;
-  ctx.fillText(lastLabel, Math.max(pad.left, width - pad.right - lastLabelWidth), height - 6);
+  const lastLabelText = formatLineChartAxisLabel(lastLabel);
+  const lastLabelWidth = ctx.measureText(lastLabelText).width;
+  ctx.fillText(lastLabelText, Math.max(pad.left, width - pad.right - lastLabelWidth), height - 6);
+  if (sample.length > 2) {
+    const mid = sample[Math.floor(sample.length / 2)];
+    const midText = formatLineChartAxisLabel(mid.date || "");
+    const midWidth = ctx.measureText(midText).width;
+    const midX = pad.left + chartWidth / 2 - midWidth / 2;
+    ctx.fillText(midText, Math.max(pad.left, Math.min(midX, width - pad.right - midWidth)), height - 6);
+  }
 }
 
 function renderTable(container, headers, rows) {
@@ -6835,6 +7234,14 @@ function formatFloat(value) {
   }).format(safeValue);
 }
 
+function formatInt(value) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat("pl-PL", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(safeValue);
+}
+
 function planRank(plan) {
   return PLAN_ORDER.indexOf(plan);
 }
@@ -6966,6 +7373,9 @@ if (typeof globalThis !== "undefined" && globalThis.__MYFUND_ENABLE_TEST_HOOKS__
     onLiabilitySubmit,
     onActionClick,
     syncEditingForms,
-    shouldUseBackendMetrics
+    shouldUseBackendMetrics,
+    normalizeLineChartRange,
+    sliceLineChartSeriesByRange,
+    buildCandlestickTooltipContent
   };
 }

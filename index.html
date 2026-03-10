@@ -82,6 +82,19 @@
               <strong id="statTotalPl">0,00 PLN</strong>
             </article>
           </div>
+          <div class="chart-toolbar">
+            <div id="dashboardChartRangeControls" class="chart-range-group" aria-label="Zakres wykresu kokpitu">
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="30">1M</button>
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="90">3M</button>
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="180">6M</button>
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="365">1R</button>
+              <button type="button" class="btn secondary chart-range-btn active" data-range-key="all">ALL</button>
+            </div>
+            <div class="chart-toolbar-actions">
+              <span id="dashboardChartRangeInfo" class="hint compact"></span>
+              <button id="dashboardChartExportBtn" type="button" class="btn secondary">Eksport PNG</button>
+            </div>
+          </div>
           <div class="chart-wrap">
             <canvas id="dashboardChart" width="1200" height="280"></canvas>
           </div>
@@ -494,6 +507,19 @@
             </div>
           </div>
           <div id="reportInfo" class="hint"></div>
+          <div class="chart-toolbar">
+            <div id="reportChartRangeControls" class="chart-range-group" aria-label="Zakres wykresu raportu">
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="30">1M</button>
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="90">3M</button>
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="180">6M</button>
+              <button type="button" class="btn secondary chart-range-btn" data-range-key="365">1R</button>
+              <button type="button" class="btn secondary chart-range-btn active" data-range-key="all">ALL</button>
+            </div>
+            <div class="chart-toolbar-actions">
+              <span id="reportChartRangeInfo" class="hint compact"></span>
+              <button id="reportChartExportBtn" type="button" class="btn secondary">Eksport PNG</button>
+            </div>
+          </div>
           <div class="chart-wrap">
             <canvas id="reportChart" width="1200" height="300"></canvas>
           </div>
@@ -855,6 +881,7 @@
             </form>
             <div class="actions-inline">
               <button id="openTradingviewBtn" class="btn secondary">Otwórz TradingView</button>
+              <button id="candlesChartExportBtn" type="button" class="btn secondary">Eksport PNG</button>
             </div>
             <div id="candlesInfo" class="hint"></div>
             <div class="chart-wrap">

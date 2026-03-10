@@ -6,6 +6,7 @@ export function renderDashboard(deps) {
     buildSeries,
     formatMoney,
     drawLineChart,
+    getVisibleLineChartModel,
     escapeHtml,
     formatFloat,
     renderTable,
@@ -22,10 +23,16 @@ export function renderDashboard(deps) {
   dom.statTotalPl.textContent = formatMoney(metrics.totalPL);
   dom.statTotalPl.style.color = metrics.totalPL >= 0 ? "var(--brand-strong)" : "var(--danger)";
 
+  const chartView = getVisibleLineChartModel(
+    "dashboard",
+    series.map((point) => point.date),
+    series.map((point) => point.marketValue)
+  );
+
   drawLineChart(
     dom.dashboardChart,
-    series.map((point) => point.date),
-    series.map((point) => point.marketValue),
+    chartView.labels,
+    chartView.values,
     {
       color: "#0e7a64",
       valueFormatter: (value) => formatMoney(value)

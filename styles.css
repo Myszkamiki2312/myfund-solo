@@ -181,6 +181,40 @@ body {
   min-width: 0;
 }
 
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.chart-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.chart-range-group {
+  display: inline-flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.chart-range-btn {
+  min-height: 36px;
+  padding: 0.44rem 0.72rem;
+  border-radius: 999px;
+}
+
+.chart-range-btn.active {
+  background: linear-gradient(120deg, var(--brand-strong), var(--brand));
+  border-color: transparent;
+  color: #ffffff;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -373,6 +407,18 @@ canvas {
   letter-spacing: 0.01em;
 }
 
+.chart-tooltip-meta {
+  display: block;
+  margin-top: 0.28rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: rgba(247, 250, 248, 0.82);
+}
+
+.hint.compact {
+  margin: 0;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -546,6 +592,16 @@ hr {
     padding: 0.45rem;
   }
 
+  .chart-toolbar,
+  .chart-toolbar-actions {
+    align-items: stretch;
+  }
+
+  .chart-toolbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   th,
   td {
     padding: 0.38rem 0.28rem;
@@ -581,6 +637,14 @@ hr {
 
   .panel h2 {
     font-size: 1.02rem;
+  }
+
+  .chart-range-group {
+    width: 100%;
+  }
+
+  .chart-range-btn {
+    flex: 1 1 auto;
   }
 
   th,
