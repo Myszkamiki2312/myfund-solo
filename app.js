@@ -4653,7 +4653,8 @@ async function renderReportCurrent(arg = null) {
       dom.reportInfo.textContent = remote.info;
       renderTable(dom.reportOutput, remote.headers, remote.rows);
       drawLineChart(dom.reportChart, remote.chart.labels, remote.chart.values, {
-        color: remote.chart.color || "#ff7f32"
+        color: remote.chart.color || "#ff7f32",
+        valueFormatter: (value) => formatFloat(value)
       });
       return;
     } catch (error) {
@@ -4668,7 +4669,8 @@ async function renderReportCurrent(arg = null) {
   dom.reportInfo.textContent = report.info;
   renderTable(dom.reportOutput, report.headers, report.rows);
   drawLineChart(dom.reportChart, report.chart.labels || [], report.chart.values || [], {
-    color: report.chart.color || "#ff7f32"
+    color: report.chart.color || "#ff7f32",
+    valueFormatter: (value) => formatFloat(value)
   });
 }
 
@@ -5741,14 +5743,173 @@ function prepareCanvasFrame(canvas) {
   };
 }
 
+function defaultLineChartValueFormatter(value) {
+  return formatFloat(toNum(value));
+}
+
+function formatLineChartAxisLabel(label) {
+  const text = String(label || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const parsed = new Date(`${text}T00:00:00`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString("pl-PL", {
+        day: "2-digit",
+        month: "short"
+      });
+    }
+  }
+  return text;
+}
+
+function formatLineChartTooltipLabel(label) {
+  const text = String(label || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const parsed = new Date(`${text}T00:00:00`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString("pl-PL", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric"
+      });
+    }
+  }
+  return text;
+}
+
+function ensureLineChartState(canvas) {
+  if (!canvas) {
+    return null;
+  }
+  if (canvas.__lineChartState) {
+    return canvas.__lineChartState;
+  }
+  const wrap = canvas.parentElement;
+  let tooltip = wrap ? wrap.querySelector(".chart-tooltip") : null;
+  if (!tooltip && wrap) {
+    tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    const label = document.createElement("div");
+    label.className = "chart-tooltip-label";
+    const value = document.createElement("div");
+    value.className = "chart-tooltip-value";
+    tooltip.append(label, value);
+    wrap.appendChild(tooltip);
+  }
+
+  const state = {
+    activeIndex: -1,
+    points: [],
+    bounds: null,
+    tooltip,
+    tooltipLabel: tooltip ? tooltip.querySelector(".chart-tooltip-label") : null,
+    tooltipValue: tooltip ? tooltip.querySelector(".chart-tooltip-value") : null,
+    valueFormatter: defaultLineChartValueFormatter,
+    tooltipLabelFormatter: formatLineChartTooltipLabel,
+    draw: () => {},
+    axisLabelFormatter: formatLineChartAxisLabel
+  };
+
+  const clearHover = () => {
+    if (state.activeIndex === -1) {
+      return;
+    }
+    state.activeIndex = -1;
+    if (state.tooltip) {
+      state.tooltip.classList.remove("visible");
+    }
+    state.draw();
+  };
+
+  const updateHover = (event) => {
+    if (!state.points.length || !state.bounds) {
+      clearHover();
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (
+      x < state.bounds.left ||
+      x > state.bounds.right ||
+      y < state.bounds.top - 18 ||
+      y > state.bounds.bottom + 18
+    ) {
+      clearHover();
+      return;
+    }
+
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    state.points.forEach((point, index) => {
+      const distance = Math.abs(point.x - x);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    });
+
+    if (state.activeIndex !== nearestIndex) {
+      state.activeIndex = nearestIndex;
+      state.draw();
+    }
+
+    const point = state.points[state.activeIndex];
+    if (!point || !state.tooltip || !state.tooltipLabel || !state.tooltipValue) {
+      return;
+    }
+    state.tooltipLabel.textContent = state.tooltipLabelFormatter(point.label);
+    state.tooltipValue.textContent = state.valueFormatter(point.value);
+    state.tooltip.classList.add("visible");
+
+    const wrapRect = wrap ? wrap.getBoundingClientRect() : rect;
+    const tooltipWidth = state.tooltip.offsetWidth || 148;
+    const tooltipHeight = state.tooltip.offsetHeight || 54;
+    let left = point.x + 14;
+    let top = point.y - tooltipHeight - 14;
+    if (left + tooltipWidth > wrapRect.width - 10) {
+      left = point.x - tooltipWidth - 14;
+    }
+    if (top < 10) {
+      top = point.y + 14;
+    }
+    left = Math.max(10, Math.min(left, wrapRect.width - tooltipWidth - 10));
+    top = Math.max(10, Math.min(top, wrapRect.height - tooltipHeight - 10));
+    state.tooltip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+  };
+
+  canvas.addEventListener("mousemove", updateHover);
+  canvas.addEventListener("mouseleave", clearHover);
+  canvas.addEventListener("blur", clearHover);
+  canvas.style.cursor = "crosshair";
+  canvas.__lineChartState = state;
+  return state;
+}
+
 function drawLineChart(canvas, labels, values, options = {}) {
   const frame = prepareCanvasFrame(canvas);
   if (!frame) {
     return;
   }
   const { ctx, width, height, compact } = frame;
+  const chartState = ensureLineChartState(canvas);
+  const valueFormatter =
+    typeof options.valueFormatter === "function" ? options.valueFormatter : defaultLineChartValueFormatter;
+  const axisLabelFormatter =
+    typeof options.axisLabelFormatter === "function" ? options.axisLabelFormatter : formatLineChartAxisLabel;
+  const tooltipLabelFormatter =
+    typeof options.tooltipLabelFormatter === "function" ? options.tooltipLabelFormatter : formatLineChartTooltipLabel;
 
   if (!values || values.length === 0) {
+    if (chartState && chartState.tooltip) {
+      chartState.tooltip.classList.remove("visible");
+      chartState.points = [];
+    }
     ctx.fillStyle = "#4b6056";
     ctx.font = compact ? "13px Space Grotesk" : "14px Space Grotesk";
     ctx.fillText("Brak danych do wykresu.", 20, 26);
@@ -5757,38 +5918,72 @@ function drawLineChart(canvas, labels, values, options = {}) {
 
   const color = options.color || "#0e7a64";
   const padding = compact
-    ? { left: 38, right: 10, top: 14, bottom: 24 }
-    : { left: 44, right: 14, top: 14, bottom: 26 };
+    ? { left: 56, right: 14, top: 18, bottom: 32 }
+    : { left: 74, right: 20, top: 20, bottom: 36 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
   const minVal = Math.min(...values);
   const maxVal = Math.max(...values);
   const isFlat = Math.abs(maxVal - minVal) < 1e-9;
-  const flatPadding = isFlat ? Math.max(1, Math.abs(maxVal) * 0.02) : 0;
+  const flatPadding = isFlat ? Math.max(1, Math.abs(maxVal) * 0.05 || 1) : Math.max(1, Math.abs(maxVal - minVal) * 0.08);
   const plotMin = minVal - flatPadding;
-  const plotRange = (maxVal + flatPadding - plotMin) || 1;
+  const plotMax = maxVal + flatPadding;
+  const plotRange = plotMax - plotMin || 1;
+  const gridLines = 4;
 
-  ctx.strokeStyle = "rgba(168, 185, 163, 0.6)";
+  const chartBackground = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+  chartBackground.addColorStop(0, "rgba(14, 122, 100, 0.06)");
+  chartBackground.addColorStop(1, "rgba(14, 122, 100, 0.01)");
+  ctx.fillStyle = chartBackground;
+  ctx.fillRect(padding.left, padding.top, chartWidth, chartHeight);
+
+  ctx.strokeStyle = "rgba(168, 185, 163, 0.46)";
   ctx.lineWidth = 1;
-  const lines = 4;
-  for (let i = 0; i <= lines; i += 1) {
-    const y = padding.top + (chartHeight / lines) * i;
+  ctx.fillStyle = "rgba(75, 96, 86, 0.9)";
+  ctx.font = compact ? "10px IBM Plex Mono" : "11px IBM Plex Mono";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i <= gridLines; i += 1) {
+    const y = padding.top + (chartHeight / gridLines) * i;
     ctx.beginPath();
     ctx.moveTo(padding.left, y);
     ctx.lineTo(width - padding.right, y);
     ctx.stroke();
+    const tickValue = plotMax - (plotRange * i) / gridLines;
+    ctx.fillText(valueFormatter(tickValue), padding.left - 10, y);
   }
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
 
   const points = values.map((value, idx) => {
-    const x = padding.left + (chartWidth * idx) / Math.max(1, values.length - 1);
+    const x =
+      values.length === 1
+        ? padding.left + chartWidth / 2
+        : padding.left + (chartWidth * idx) / Math.max(1, values.length - 1);
     const y = padding.top + chartHeight - ((value - plotMin) / plotRange) * chartHeight;
     return { x, y, value, label: labels[idx] || "" };
   });
+  if (chartState) {
+    chartState.points = points;
+    chartState.bounds = {
+      left: padding.left,
+      right: width - padding.right,
+      top: padding.top,
+      bottom: height - padding.bottom
+    };
+    chartState.valueFormatter = valueFormatter;
+    chartState.tooltipLabelFormatter = tooltipLabelFormatter;
+    chartState.axisLabelFormatter = axisLabelFormatter;
+    chartState.draw = () => drawLineChart(canvas, labels, values, options);
+    if (chartState.activeIndex >= points.length) {
+      chartState.activeIndex = -1;
+    }
+  }
 
   const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
-  gradient.addColorStop(0, color + "66");
-  gradient.addColorStop(1, color + "08");
+  gradient.addColorStop(0, `${color}52`);
+  gradient.addColorStop(1, `${color}06`);
 
   ctx.beginPath();
   points.forEach((point, idx) => {
@@ -5812,27 +6007,67 @@ function drawLineChart(canvas, labels, values, options = {}) {
       ctx.lineTo(point.x, point.y);
     }
   });
-  ctx.lineWidth = 2;
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.shadowColor = `${color}30`;
+  ctx.shadowBlur = 16;
+  ctx.lineWidth = compact ? 2.4 : 2.8;
   ctx.strokeStyle = color;
   ctx.stroke();
+  ctx.restore();
 
   const last = points[points.length - 1];
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(last.x, last.y, 3.5, 0, Math.PI * 2);
+  ctx.arc(last.x, last.y, compact ? 4 : 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.fillStyle = "#ffffff";
+  ctx.arc(last.x, last.y, compact ? 1.7 : 2, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "#30473e";
-  ctx.font = compact ? "10px IBM Plex Mono" : "12px IBM Plex Mono";
-  ctx.fillText(formatMoney(maxVal), 4, padding.top + 10);
-  ctx.fillText(formatMoney(minVal), 4, height - padding.bottom);
+  const activePoint = chartState && chartState.activeIndex >= 0 ? points[chartState.activeIndex] : null;
+  if (activePoint) {
+    ctx.save();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(0, 87, 71, 0.34)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(activePoint.x, padding.top);
+    ctx.lineTo(activePoint.x, height - padding.bottom);
+    ctx.stroke();
+    ctx.restore();
 
-  ctx.font = compact ? "10px Space Grotesk" : "12px Space Grotesk";
-  const firstLabel = labels[0] || "";
-  const lastLabel = labels[labels.length - 1] || "";
-  ctx.fillText(firstLabel, padding.left, height - 7);
-  const lastLabelWidth = ctx.measureText(lastLabel).width;
-  ctx.fillText(lastLabel, Math.max(padding.left, width - padding.right - lastLabelWidth), height - 7);
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(activePoint.x, activePoint.y, compact ? 5 : 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else if (chartState && chartState.tooltip) {
+    chartState.tooltip.classList.remove("visible");
+  }
+
+  const xLabelIndices = Array.from(
+    new Set(
+      compact
+        ? [0, Math.round((points.length - 1) / 2), points.length - 1]
+        : [0, Math.round((points.length - 1) / 3), Math.round(((points.length - 1) * 2) / 3), points.length - 1]
+    )
+  ).filter((index) => index >= 0 && index < points.length);
+  ctx.fillStyle = "#30473e";
+  ctx.font = compact ? "10px Space Grotesk" : "11px Space Grotesk";
+  ctx.textBaseline = "top";
+  xLabelIndices.forEach((index) => {
+    const point = points[index];
+    const text = axisLabelFormatter(labels[index] || "");
+    const metrics = ctx.measureText(text);
+    let x = point.x - metrics.width / 2;
+    x = Math.max(padding.left, Math.min(x, width - padding.right - metrics.width));
+    ctx.fillText(text, x, height - padding.bottom + 10);
+  });
 }
 
 function drawCandlestickChart(canvas, candles) {

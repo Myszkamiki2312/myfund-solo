@@ -26,7 +26,10 @@ export function renderDashboard(deps) {
     dom.dashboardChart,
     series.map((point) => point.date),
     series.map((point) => point.marketValue),
-    { color: "#0e7a64" }
+    {
+      color: "#0e7a64",
+      valueFormatter: (value) => formatMoney(value)
+    }
   );
 
   const rows = metrics.holdings.map((holding) => [
